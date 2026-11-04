@@ -52,6 +52,12 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const fetchDates = () => get<{ ready: ReadyDate[]; processing: ProcessingDate[] }>("/api/dates");
-export const fetchPapers = (date: string) =>
-  get<{ date: string; papers: PaperListItem[] }>(`/api/papers?date=${encodeURIComponent(date)}`);
+export interface PapersResponse {
+  date: string;
+  status: "ready" | "processing" | "empty";
+  pending: number; // papers of this date still being analyzed (not included in `papers`)
+  papers: PaperListItem[];
+}
+
+export const fetchPapers = (date: string) => get<PapersResponse>(`/api/papers?date=${encodeURIComponent(date)}`);
 export const fetchPaper = (id: string) => get<PaperDetail>(`/api/papers/${encodeURIComponent(id)}`);

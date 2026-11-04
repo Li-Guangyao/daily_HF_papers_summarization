@@ -78,11 +78,7 @@ npm run db:migrate:local                       # creates a local D1 under .wrang
 LOCAL_D1_PATH=auto .venv/bin/python -m pipeline.backfill --date 2026-10-21 --limit 3
 ```
 
-The website only lists dates whose **every** paper is done. With `--limit 3` that date stays `processing`. To see it locally anyway, mark it ready:
-
-```bash
-npx wrangler d1 execute hf-papers --local --command "UPDATE daily_lists SET status = 'ready'"
-```
+With `--limit 3` that date stays `processing`. The website still shows it: a date appears as soon as at least one of its papers is done, with the finished papers listed and a note saying how many are still being analyzed (the date button shows e.g. `42/45`). A date with no finished papers only shows a progress banner.
 
 Then start the site in two terminals:
 
@@ -155,7 +151,7 @@ All commands run from the repository root.
 3. **Merge into `main`.** Scheduled workflows only run from the default branch (`main`), so the workflow files and the `database_id` in `wrangler.toml` must be on `main`.
 4. **Do a first manual run.** Go to Actions → *pipeline* → *Run workflow*. Enter a recent workday such as `2026-10-21` in **dates**, or leave it empty for the previous 2 workdays.
    - The run summary shows each provider's state and each date's counts.
-   - When the date shows `ready`, refresh the website.
+   - Finished papers show up on the website right away (within about 5 minutes, because of the edge cache); the date is complete once it shows `ready`.
 5. **From then on,** the pipeline runs Tuesday–Saturday at 02:17 UTC (10:17 Beijing), with catch-up runs at 08:17 and 14:17 UTC. Each run covers the previous two workdays, so Friday's papers are processed on Saturday morning.
    - A run that finds nothing to do takes about 1 billed minute.
    - If every provider is down, the run fails and GitHub emails you; the papers stay hidden until a later run succeeds.
@@ -218,7 +214,8 @@ npx wrangler d1 execute hf-papers --remote --command "SELECT created_at, job, ta
 
 | Symptom | Check |
 |---|---|
-| Site says "No papers have been published yet" | `--status` for recent dates. A date only appears when it is `ready`. |
+| Site says "No papers have been published yet" | `--status` for recent dates. A date appears once at least one of its papers is done. |
+| A date shows "N more papers are still being analyzed" | Normal for a few hours: papers whose full text HF hasn't published yet wait one run, then fall back to the abstract. The next run finishes them. |
 | A date is stuck in `processing` | `job_errors`. Usually a provider is down or out of quota. The next run continues automatically. |
 | Run summary says a model looks retired | Disable that row in `llm_models`. |
 | `D1 query failed` with HTTP 401/403 | `CF_API_TOKEN` needs the *D1 Edit* permission on the right account. |

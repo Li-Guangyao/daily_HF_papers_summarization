@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchDates, fetchPapers, type PaperListItem, type ProcessingDate, type ReadyDate } from "./api";
+import { fetchDates, fetchPapers, type PaperListItem, type PapersResponse, type ProcessingDate } from "./api";
 import { t, type Lang } from "./i18n";
 
 function weekday(date: string, lang: Lang) {
@@ -9,55 +9,64 @@ function weekday(date: string, lang: Lang) {
   });
 }
 
+// A date in the strip: every ready date, plus processing dates that already have finished papers.
+interface ShownDate {
+  date: string;
+  paperCount: number;
+  papersDone: number;
+}
+
 export default function ListPage({ lang }: { lang: Lang }) {
   const s = t(lang);
-  const [ready, setReady] = useState<ReadyDate[] | null>(null);
-  const [processing, setProcessing] = useState<ProcessingDate[]>([]);
+  const [dates, setDates] = useState<ShownDate[] | null>(null); // newest first
+  const [waiting, setWaiting] = useState<ProcessingDate[]>([]); // processing dates with nothing finished yet
   const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.search).get("date"));
-  const [papers, setPapers] = useState<PaperListItem[] | null>(null);
+  const [list, setList] = useState<PapersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchDates()
       .then((d) => {
-        setReady(d.ready);
-        setProcessing(d.processing);
-        setSelected((cur) => cur ?? d.ready[0]?.date ?? null);
+        const partial = d.processing.filter((p) => (p.papersDone ?? 0) > 0);
+        const shown: ShownDate[] = [
+          ...d.ready.map((r) => ({ date: r.date, paperCount: r.paperCount, papersDone: r.paperCount })),
+          ...partial.map((p) => ({ date: p.date, paperCount: p.paperCount ?? 0, papersDone: p.papersDone ?? 0 })),
+        ].sort((a, b) => b.date.localeCompare(a.date));
+        setDates(shown);
+        setWaiting(d.processing.filter((p) => !(p.papersDone > 0)));
+        setSelected((cur) => cur ?? shown[0]?.date ?? null);
       })
       .catch(() => setError(s.loadError));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!selected || !ready) return;
+    if (!selected || !dates) return;
     const url = new URL(location.href);
     url.searchParams.set("date", selected);
     history.replaceState(null, "", url);
     stripRef.current?.querySelector(`[data-date="${selected}"]`)?.scrollIntoView({ inline: "center", block: "nearest" });
-    if (!ready.some((d) => d.date === selected)) {
-      setPapers([]);
-      return;
-    }
-    setPapers(null);
+    setList(null);
+    if (!dates.some((d) => d.date === selected)) return;
     fetchPapers(selected)
-      .then((r) => setPapers(r.papers))
+      .then(setList)
       .catch(() => setError(s.loadError));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, ready]);
+  }, [selected, dates]);
 
   if (error) return <Notice>{error}</Notice>;
-  if (!ready) return <Notice>{s.loading}</Notice>;
-  if (ready.length === 0 && processing.length === 0) return <Notice>{s.noDates}</Notice>;
+  if (!dates) return <Notice>{s.loading}</Notice>;
+  if (dates.length === 0 && waiting.length === 0) return <Notice>{s.noDates}</Notice>;
 
-  const isReady = ready.some((d) => d.date === selected);
-  const dates = [...ready].reverse(); // oldest → newest, so the newest sits at the right edge
+  const isShown = dates.some((d) => d.date === selected);
+  const strip = [...dates].reverse(); // oldest → newest, so the newest sits at the right edge
 
   return (
     <main className="mx-auto w-full max-w-4xl flex-1 px-4 pb-16">
       <p className="mt-6 text-sm text-stone-500 dark:text-stone-400">{s.tagline}</p>
 
-      {processing.map((p) => (
+      {waiting.map((p) => (
         <div
           key={p.date}
           className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
@@ -68,29 +77,43 @@ export default function ListPage({ lang }: { lang: Lang }) {
 
       <div className="mt-5 flex items-end gap-3">
         <div ref={stripRef} className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
-          {dates.map((d) => (
-            <button
-              key={d.date}
-              data-date={d.date}
-              onClick={() => setSelected(d.date)}
-              className={`flex shrink-0 flex-col items-center rounded-xl border px-3 py-1.5 text-sm transition ${
-                d.date === selected
-                  ? "border-amber-500 bg-amber-500 text-white shadow-sm"
-                  : "border-stone-200 bg-white hover:border-stone-400 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
-              }`}
-            >
-              <span className="text-xs opacity-80">{weekday(d.date, lang)}</span>
-              <span className="font-medium tabular-nums">{d.date.slice(5)}</span>
-            </button>
-          ))}
+          {strip.map((d) => {
+            const partial = d.papersDone < d.paperCount;
+            const active = d.date === selected;
+            return (
+              <button
+                key={d.date}
+                data-date={d.date}
+                onClick={() => setSelected(d.date)}
+                title={partial ? s.partial(d.papersDone, d.paperCount) : undefined}
+                className={`flex shrink-0 flex-col items-center rounded-xl border px-3 py-1.5 text-sm transition ${
+                  active
+                    ? "border-amber-500 bg-amber-500 text-white shadow-sm"
+                    : "border-stone-200 bg-white hover:border-stone-400 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
+                }`}
+              >
+                <span className="text-xs opacity-80">{weekday(d.date, lang)}</span>
+                <span className="font-medium tabular-nums">{d.date.slice(5)}</span>
+                {partial && (
+                  <span
+                    className={`text-[10px] leading-tight tabular-nums ${
+                      active ? "text-white/90" : "text-amber-700 dark:text-amber-400"
+                    }`}
+                  >
+                    {d.papersDone}/{d.paperCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
         <label className="shrink-0 text-xs text-stone-500 dark:text-stone-400">
           <span className="mb-1 block">{s.jumpTo}</span>
           <input
             type="date"
             value={selected ?? ""}
-            min={dates[0]?.date}
-            max={dates[dates.length - 1]?.date}
+            min={strip[0]?.date}
+            max={strip[strip.length - 1]?.date}
             onChange={(e) => e.target.value && setSelected(e.target.value)}
             className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
           />
@@ -100,21 +123,27 @@ export default function ListPage({ lang }: { lang: Lang }) {
       {selected && (
         <h1 className="mt-6 text-lg font-semibold">
           {selected}
-          {isReady && papers && (
+          {isShown && list && (
             <span className="ml-2 text-sm font-normal text-stone-500 dark:text-stone-400">
-              {papers.length} {s.papers}
+              {list.papers.length} {s.papers}
             </span>
           )}
         </h1>
       )}
 
-      {!isReady ? (
+      {isShown && list && list.pending > 0 && (
+        <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+          {s.missing(list.pending)}
+        </p>
+      )}
+
+      {!isShown ? (
         <p className="mt-4 text-stone-500 dark:text-stone-400">{s.notReady}</p>
-      ) : !papers ? (
+      ) : !list ? (
         <p className="mt-4 text-stone-500 dark:text-stone-400">{s.loading}</p>
       ) : (
         <ol className="mt-3 divide-y divide-stone-200 dark:divide-stone-800">
-          {papers.map((p, i) => (
+          {list.papers.map((p, i) => (
             <PaperRow key={p.id} paper={p} rank={i + 1} lang={lang} />
           ))}
         </ol>

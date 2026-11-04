@@ -9,6 +9,8 @@ const strings = {
     processing: (date: string, done: number, total: number) =>
       `Papers for ${date} are being analyzed (${done} / ${total}).`,
     notReady: "This date has no papers yet, or they're still being analyzed.",
+    missing: (n: number) => `${n} more ${n === 1 ? "paper is" : "papers are"} still being analyzed and will appear when done.`,
+    partial: (done: number, total: number) => `${done} of ${total} analyzed`,
     loading: "Loading…",
     loadError: "Couldn't load data. Please try again later.",
     noDates: "No papers have been published yet.",
@@ -36,6 +38,8 @@ const strings = {
     papers: "篇论文",
     processing: (date: string, done: number, total: number) => `${date} 的论文正在解读中（${done} / ${total}）。`,
     notReady: "该日期暂无论文，或仍在解读中。",
+    missing: (n: number) => `还有 ${n} 篇论文正在解读，完成后会自动补上。`,
+    partial: (done: number, total: number) => `已解读 ${done} / ${total}`,
     loading: "加载中…",
     loadError: "数据加载失败，请稍后重试。",
     noDates: "暂时还没有发布的论文。",
