@@ -71,6 +71,9 @@ async def has_work(db, dates: list[str], since: str) -> bool:
         "SELECT COUNT(*) AS n FROM summaries s JOIN papers p ON p.id = s.paper_id "
         "WHERE p.daily_date >= ? AND p.withdrawn_at IS NULL AND s.status IN ('pending', 'error') "
         "AND s.attempts < ?", [since, MAX_ATTEMPTS])
+    if int(rows[0]["n"]) > 0:
+        return True
+    rows = await db.query(f"SELECT COUNT(*) AS n {UNCLASSIFIED}", [MAX_ATTEMPTS])
     return int(rows[0]["n"]) > 0
 
 
@@ -91,7 +94,8 @@ async def reset_retired(db, start: str, end: str) -> int:
 async def unfinished(db, start: str, end: str) -> list[dict]:
     return await db.query(
         "SELECT s.paper_id, s.family, s.summary_en IS NOT NULL AS has_en, p.title, p.abstract, p.daily_date, "
-        "p.upvotes, p.md_misses FROM summaries s JOIN papers p ON p.id = s.paper_id "
+        "p.upvotes, (julianday('now') - julianday(p.md_first_miss_at)) * 24 AS md_wait_hours "
+        "FROM summaries s JOIN papers p ON p.id = s.paper_id "
         "WHERE p.daily_date BETWEEN ? AND ? AND p.withdrawn_at IS NULL AND s.status IN ('pending', 'error') "
         "AND s.attempts < ? ORDER BY p.daily_date, p.upvotes DESC",
         [start, end, MAX_ATTEMPTS])
@@ -113,19 +117,44 @@ async def save_en(db, paper_id: str, text: str, route: Route, source: str, trunc
         [text, route.family, route.id, source, PROMPT_VERSION, int(truncated), paper_id])
 
 
-async def save_zh(db, paper_id: str, title_zh: str, text: str, route: Route) -> None:
+async def save_zh(db, paper_id: str, title_zh: str | None, text: str, route: Route) -> None:
     await db.query(
         "UPDATE summaries SET title_zh = ?, summary_zh = ?, zh_model_id = ?, status = 'ok', last_error = NULL, "
         "updated_at = datetime('now') WHERE paper_id = ? AND family = ?",
         [title_zh, text, route.id, paper_id, route.family])
 
 
+async def set_category(db, paper_id: str, major: str, minor: str) -> None:
+    await db.query("UPDATE papers SET category_major = ?, category_minor = ?, updated_at = datetime('now') "
+                   "WHERE id = ?", [major, minor, paper_id])
+
+
+async def category_failure(db, paper_id: str) -> None:
+    await db.query("UPDATE papers SET category_attempts = category_attempts + 1 WHERE id = ?", [paper_id])
+
+
+UNCLASSIFIED = (
+    "FROM papers p LEFT JOIN summaries s ON s.paper_id = p.id "
+    "WHERE p.category_minor IS NULL AND p.category_attempts < ? "
+    "AND (s.status IS NULL OR s.status IN ('ok', 'fatal'))"  # settled papers; pending ones get it from the EN step
+)
+
+
+async def unclassified(db, limit: int) -> list[dict]:
+    """Papers (any date) that still need a category, newest first."""
+    return await db.query(f"SELECT p.id, p.title, p.abstract {UNCLASSIFIED} ORDER BY p.daily_date DESC, p.upvotes DESC "
+                          "LIMIT ?", [MAX_ATTEMPTS, limit])
+
+
 async def paper_failure(db, paper_id: str, message: str) -> bool:
     """Count a paper error. Returns True when the summary became fatal."""
+    # Compare the column itself (the old value here), not an expression such as `attempts + 1`: D1 receives every
+    # parameter as a string, and only a column's INTEGER affinity turns '2' back into a number. `attempts + 1 >= '3'`
+    # is always false in SQLite, so papers used to retry forever.
     rows = await db.query(
         "UPDATE summaries SET attempts = attempts + 1, last_error = ?, updated_at = datetime('now'), "
-        "status = CASE WHEN attempts + 1 >= ? THEN 'fatal' ELSE 'error' END "
-        "WHERE paper_id = ? RETURNING status", [message[:500], MAX_ATTEMPTS, paper_id])
+        "status = CASE WHEN attempts >= ? THEN 'fatal' ELSE 'error' END "
+        "WHERE paper_id = ? RETURNING status", [message[:500], MAX_ATTEMPTS - 1, paper_id])
     return bool(rows) and rows[0]["status"] == "fatal"
 
 
@@ -137,7 +166,8 @@ async def mark_error(db, paper_id: str, message: str) -> None:
 
 
 async def md_miss(db, paper_id: str) -> None:
-    await db.query("UPDATE papers SET md_misses = md_misses + 1 WHERE id = ?", [paper_id])
+    await db.query("UPDATE papers SET md_misses = md_misses + 1, "
+                   "md_first_miss_at = COALESCE(md_first_miss_at, datetime('now')) WHERE id = ?", [paper_id])
 
 
 async def log_error(db, job: str, target: str, message: str, model_id: int | None = None,

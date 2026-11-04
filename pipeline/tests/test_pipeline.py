@@ -7,10 +7,10 @@ import pytest
 from pipeline.core import AllProvidersDown, RunOptions, run
 from pipeline.lock import RunLock
 from pipeline.pool import Timing
-from pipeline.tests.fakes import FakeWorld, failing, hf_item, make_db, ok_behavior
+from pipeline.tests.fakes import FakeWorld, en_output, failing, hf_item, make_db, ok_behavior, sse
 
 DAY = "2026-01-05"  # an old Monday: missing markdown falls back to the abstract right away
-FAST = Timing(retry_base=0.01, rate_limit_pause=0.01, cooling=0.05, idle_poll=0.01)
+FAST = Timing(retry_base=0.01, rate_limit_pause=0.01, cooling=0.05, idle_poll=0.01, paper_retry_delay=0.01)
 
 
 @pytest.fixture(autouse=True)
@@ -160,3 +160,86 @@ def test_busy_provider_still_counts_as_available():
         return (await rows(db, "SELECT status FROM summaries"))[0]["status"]
 
     assert go(scenario()) == "ok"
+
+
+def test_categories_from_walkthrough_and_from_title_and_abstract():
+    db = make_db([("nemo", "a.test", 2)])
+    # An older paper stored before categories existed: summarized, but without a category.
+    db.conn.execute("INSERT INTO daily_lists (date, paper_count, status, fetched_at) VALUES ('2026-01-02', 1, 'ready', 'x')")
+    db.conn.execute("INSERT INTO papers (id, daily_date, title, authors, abstract) "
+                    "VALUES ('2601.00900', '2026-01-02', 'Old paper', '[]', 'An old abstract.')")
+    db.conn.execute("INSERT INTO summaries (paper_id, status) VALUES ('2601.00900', 'ok')")
+
+    def behave(body, kind):
+        text = str(body)
+        if kind == "en" and "2601.00002" in text:
+            return sse(en_output(category="not.a.category"))   # no valid tag: classified afterwards
+        if kind == "classify" and "Paper 2601.00003" in text:
+            return sse("I think it is about agents.")          # unusable answer: counted, retried next run
+        return ok_behavior(body, kind)
+
+    papers = [hf_item("2601.00001", 9), hf_item("2601.00002", 8), hf_item("2601.00003", 7, withdrawn=True)]
+    world = FakeWorld({DAY: papers}, {"a.test": behave})
+
+    async def scenario():
+        async with world.client() as client:
+            report = await run(db, opts(), client=client)
+            again = await run(db, opts(), client=client)
+        cats = {r["id"]: r for r in await rows(db, "SELECT id, category_major, category_minor, category_attempts "
+                                                   "FROM papers")}
+        return report, again, cats
+
+    report, again, cats = go(scenario())
+    assert (cats["2601.00001"]["category_major"], cats["2601.00001"]["category_minor"]) == ("cv", "cv.generation")
+    assert cats["2601.00002"]["category_minor"] == "llm.agents"                  # from title + abstract
+    assert cats["2601.00900"]["category_minor"] == "llm.agents"                  # history gets classified too
+    assert cats["2601.00003"]["category_minor"] is None and cats["2601.00003"]["category_attempts"] == 2
+    assert report.done["categorized"] == 1 and report.categories["ok"] == 2 and report.categories["failed"] == 1
+    assert "Categories from walkthroughs: 1" in report.markdown()
+    assert world.calls[("a.test", "classify")] == 3 + 1                          # run 2 only retries the failed one
+
+
+def test_missing_markdown_waits_hours_not_runs_then_uses_abstract():
+    from datetime import timedelta
+    from pipeline.config import utc_today
+    day = (utc_today() - timedelta(days=1)).isoformat()   # recent: wait for the full text
+    db = make_db([("nemo", "a.test", 1)])
+    world = FakeWorld({day: [hf_item("2611.00001", 5)]}, {"a.test": ok_behavior}, missing_md={"2611.00001"})
+
+    async def once():
+        async with world.client() as client:
+            await run(db, RunOptions(dates=[day], timing=FAST), client=client)
+        return (await rows(db, "SELECT s.status, s.source, p.md_misses, p.md_first_miss_at FROM summaries s "
+                               "JOIN papers p ON p.id = s.paper_id"))[0]
+
+    first = go(once())
+    assert first["status"] == "pending" and first["md_first_miss_at"] and first["md_misses"] == 1
+    second = go(once())                                    # a run soon after: still waiting
+    assert second["status"] == "pending" and second["md_first_miss_at"] == first["md_first_miss_at"]
+    db.conn.execute("UPDATE papers SET md_first_miss_at = datetime('now', '-11 hours')")
+    third = go(once())                                     # waited long enough: abstract
+    assert third["status"] == "ok" and third["source"] == "abstract"
+
+
+def test_unusable_translation_is_retried_after_a_delay_then_fatal():
+    db = make_db([("nemo", "a.test", 1)])
+
+    def behave(body, kind):
+        if kind == "zh":
+            return sse("这是一段没有任何结构的输出。")
+        return ok_behavior(body, kind)
+
+    world = FakeWorld({DAY: [hf_item("2601.00001", 5)]}, {"a.test": behave})
+
+    async def scenario():
+        async with world.client() as client:
+            await run(db, opts(), client=client)
+        return (await rows(db, "SELECT status, attempts FROM summaries"))[0], \
+               await rows(db, "SELECT message FROM job_errors WHERE job = 'translate'"), \
+               (await rows(db, "SELECT status FROM daily_lists"))[0]["status"]
+
+    summary, errors, day_status = go(scenario())
+    assert summary["status"] == "fatal" and summary["attempts"] == 3          # stops after 3, also on D1
+    assert world.calls[("a.test", "zh")] == 3
+    assert len(errors) == 3 and "output: 这是一段没有任何结构的输出。" in errors[0]["message"]
+    assert day_status == "ready"

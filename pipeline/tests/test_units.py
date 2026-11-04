@@ -5,8 +5,13 @@ import pytest
 from pipeline.config import expand_dates, previous_workdays
 from pipeline.d1 import encode
 from pipeline.llm import PaperError, ProviderError, classify
-from pipeline.markdown import (ABSTRACT_NOTICE, OutputCheckError, check_en, check_zh, prepare_input,
+import asyncio
+import time
+
+from pipeline.markdown import (ABSTRACT_NOTICE, OutputCheckError, check_en, check_zh, prepare_input, snippet,
                                strip_reasoning)
+from pipeline.pool import RpmLimiter
+from pipeline.taxonomy import MINORS, TAXONOMY, parse_category
 from pipeline.tests.fakes import en_output, zh_output
 
 
@@ -44,8 +49,10 @@ def test_strip_reasoning():
 
 
 def test_check_en_accepts_any_structure():
-    good = en_output()
+    good = en_output(category=None)
     assert check_en("Sure! Here it is:\n" + good, "full_text") == good.strip()      # preamble dropped
+    assert check_en(en_output(), "full_text") == good.strip()                         # category tag dropped
+    assert "<category>" not in check_en(good + "\n<category>llm.rag</category>\n", "full_text")
     custom = en_output(["In a nutshell", "Background", "What they found", "Why it matters", "Caveats", "Next"])
     assert check_en(custom, "full_text").startswith("## In a nutshell")
 
@@ -77,6 +84,41 @@ def test_check_zh():
         check_zh(zh_output().replace("$$", ""), en)                                     # formula not preserved
 
 
+def test_check_zh_reads_tags_leniently():
+    en = en_output()
+    good_title, good_body = check_zh(zh_output(), en)
+    no_close = zh_output().replace("</summary_zh>", "")
+    assert check_zh(no_close, en) == (good_title, good_body)                            # missing closing tag
+    fenced = f"```markdown\n{zh_output()}\n```"
+    assert check_zh(fenced, en) == (good_title, good_body)                              # fenced output
+    bare = "# 测试论文\n\n" + good_body                                               # no tags at all
+    assert check_zh(bare, en) == ("测试论文", good_body)
+    assert check_zh("标题：测试论文\n" + good_body, en)[0] == "测试论文"
+    assert check_zh(good_body, en) == (None, good_body)                                 # no title: allowed
+    with pytest.raises(OutputCheckError) as err:
+        check_zh("抱歉，我无法完成。", en)
+    assert err.value.raw == "抱歉，我无法完成。"                                           # kept for the log
+
+
+def test_snippet_keeps_head_and_tail_on_one_line():
+    assert snippet("a\nb") == "a\\nb"
+    long = "x" * 300 + "MIDDLE" + "y" * 300
+    s = snippet(long)
+    assert s.startswith("x" * 250) and s.endswith("y" * 150) and "MIDDLE" not in s
+
+
+def test_rpm_limiter_spaces_starts_evenly():
+    async def scenario():
+        limiter = RpmLimiter(1200)          # 90% → 1080 per minute → one start every ~56 ms
+        t0 = time.monotonic()
+        for _ in range(4):
+            await limiter.acquire()
+        return time.monotonic() - t0
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed >= 3 * 60 / 1080 * 0.95  # no burst: the 2nd–4th starts each waited
+
+
 @pytest.mark.parametrize("status, body, kind", [
     (429, '{"error":{"code":"1302","message":"您的账户已达到速率限制，请您控制请求频率"}}', "rate_limit"),
     (429, '{"error":{"code":429,"message":"Rate limit exceeded: free-models-per-day"}}', "quota"),
@@ -92,3 +134,19 @@ def test_classify_provider_errors(status, body, kind):
 
 def test_classify_paper_error():
     assert isinstance(classify(400, '{"error":{"code":"1301","message":"sensitive content"}}'), PaperError)
+
+
+def test_parse_category():
+    assert parse_category("<category>llm.agents</category>\n## In a nutshell") == ("llm", "llm.agents")
+    assert parse_category("<think>maybe</think><category> CV.Generation </category>") == ("cv", "cv.generation")
+    assert parse_category("<category>llm.unknown</category><category>mm.vlm</category>") == ("mm", "mm.vlm")
+    assert parse_category("agents") is None
+
+
+def test_taxonomy_is_consistent():
+    ids = [m["id"] for major in TAXONOMY["majors"] for m in major["minors"]]
+    assert len(ids) == len(set(ids)) == len(MINORS)
+    for major in TAXONOMY["majors"]:
+        assert major["zh"] and major["en"]
+        for m in major["minors"]:
+            assert m["id"].startswith(major["id"] + ".") and m["zh"] and m["en"] and m["desc"]

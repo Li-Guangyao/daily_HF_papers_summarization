@@ -11,6 +11,7 @@ from datetime import datetime
 import httpx
 
 from . import hf, store
+from .classify import classify_missing
 from .config import Route, load_routes
 from .llm import ProviderError, health_check
 from .pool import Job, RouteState, Scheduler, Timing
@@ -44,6 +45,7 @@ class RunReport:
     remaining: int
     stopped_early: bool
     done: Counter
+    categories: Counter = field(default_factory=Counter)  # the classify pass
 
     @property
     def all_down(self) -> bool:
@@ -71,6 +73,9 @@ class RunReport:
         lines.append("")
         lines.append(f"Summaries finished this run: {self.done['ok']}, became fatal: {self.done['fatal']}, "
                      f"jobs left: {self.remaining}" + (" (stopped early)" if self.stopped_early else ""))
+        c = self.categories
+        lines.append(f"Categories from walkthroughs: {self.done['categorized']}; from title + abstract: {c['ok']} "
+                     f"(failed {c['failed']}, left for next run {c['skipped']})")
         if any(s.down_reason and s.down_reason.startswith("gone") for s in self.states):
             lines.append("")
             lines.append("**A model looks retired or no longer free. Disable its row in `llm_models`.**")
@@ -149,19 +154,27 @@ async def run(db, opts: RunOptions, *, client: httpx.AsyncClient | None = None,
                           hf_concurrency=opts.hf_concurrency, log=log)
         for r in rows:
             has_en = bool(r["has_en"])
-            sched.add(Job(r["paper_id"], r["daily_date"], r["title"], r["abstract"], int(r["md_misses"]),
+            wait = r["md_wait_hours"]
+            sched.add(Job(r["paper_id"], r["daily_date"], r["title"], r["abstract"],
+                          float(wait) if wait is not None else None,
                           "zh" if has_en else "en", r["family"] if has_en else None))
         log(f"plan     {len(rows)} papers to process with {sum(r.max_concurrency for r in healthy)} workers")
 
         # 4. Work.
         await sched.run()
 
-        # 5. Readiness for every date we touched.
+        # 5. Categories for papers that have none yet (including papers stored before categories existed).
+        categories = Counter()
+        if not sched.stopping():
+            categories = await classify_missing(db, client, sched.states, opts.timing, log=log,
+                                                stopping=sched.stopping)
+
+        # 6. Readiness for every date we touched.
         for day in sorted(sched.touched_dates | set(opts.dates)):
             await store.check_ready(db, day)
 
         return RunReport(sched.states, skipped, await store.date_report(db, start, end), sched.remaining(),
-                         sched.stopping(), sched.done)
+                         sched.stopping(), sched.done, categories)
     finally:
         if own_client:
             await client.aclose()

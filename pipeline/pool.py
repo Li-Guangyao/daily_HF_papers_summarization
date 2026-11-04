@@ -17,8 +17,9 @@ import httpx
 from . import hf, store
 from .config import Route, utc_today
 from .llm import PaperError, ProviderError, chat
-from .markdown import OutputCheckError, budget_chars, check_en, check_zh, prepare_input
+from .markdown import OutputCheckError, budget_chars, check_en, check_zh, prepare_input, snippet, strip_reasoning
 from .prompts import en_messages, zh_messages
+from .taxonomy import parse_category
 
 
 @dataclass
@@ -33,15 +34,23 @@ class Timing:
     max_cooling_cycles: int = 3
     max_provider_failures: int = 6    # per job per run, then the row waits for the next run
     max_rate_limits: int = 20
+    paper_retry_delay: float = 30.0   # wait before retrying a paper whose output was unusable
+
+
+MD_WAIT_HOURS = 10   # wait this long after the markdown was first missing, then use the abstract
+                     # (scheduled runs are 6 hours apart, so the third run of the day falls back)
+MD_OLD_DAYS = 3      # papers this old use the abstract right away (backfills)
 
 
 class RpmLimiter:
-    """At most `rpm` request starts in any 60-second window (90% of the provider's limit)."""
+    """At most `rpm` request starts in any 60-second window (90% of the provider's limit), spaced evenly:
+    providers reject a burst (all workers starting at once) even when the per-minute total is fine."""
 
     def __init__(self, rpm: int):
         self.base = max(1, int(rpm * 0.9))
         self.reduced_until = 0.0
         self.starts: deque[float] = deque()
+        self.next_start = 0.0
         self.lock = asyncio.Lock()
 
     @property
@@ -55,10 +64,14 @@ class RpmLimiter:
         async with self.lock:
             while True:
                 now = time.monotonic()
+                if now < self.next_start:
+                    await asyncio.sleep(self.next_start - now)
+                    continue
                 while self.starts and now - self.starts[0] >= 60:
                     self.starts.popleft()
                 if len(self.starts) < self.limit:
                     self.starts.append(now)
+                    self.next_start = now + 60 / self.limit
                     return
                 await asyncio.sleep(60 - (now - self.starts[0]) + 0.05)
 
@@ -142,7 +155,7 @@ class Job:
     daily_date: str
     title: str
     abstract: str | None
-    md_misses: int
+    md_wait_hours: float | None        # hours since the markdown was first missing; None if never
     step: str                          # en | zh
     family: str | None = None          # required for zh
     provider_failures: int = 0
@@ -304,15 +317,17 @@ class Scheduler:
         rs.success()  # the provider answered; the problem is this paper or this output
         rs.stats["paper_errors"] += 1
         step = "summarize" if job.step == "en" else "translate"
-        self.log(f"paper error {step} {job.paper_id} on {rs.route.label}: {str(e)[:160]}")
-        await store.log_error(self.db, step, job.paper_id, str(e), rs.route.id,
+        raw = getattr(e, "raw", None)
+        shown = f"{e} | output: {snippet(raw)}" if raw else str(e)
+        self.log(f"paper error {step} {job.paper_id} on {rs.route.label}: {shown[:600]}")
+        await store.log_error(self.db, step, job.paper_id, shown, rs.route.id,
                               getattr(e, "status", None), getattr(e, "code", None))
         if await store.paper_failure(self.db, job.paper_id, f"{step}: {e}"):
             self.md.release(job.paper_id)
             self.done["fatal"] += 1
             await store.check_ready(self.db, job.daily_date)
         else:
-            self._requeue(job, 0.0, rs.route.id)
+            self._requeue(job, self.timing.paper_retry_delay, rs.route.id)
 
     async def _acquire(self, rs: RouteState) -> None:
         await rs.limiter.acquire()
@@ -333,12 +348,14 @@ class Scheduler:
             text, truncated = prepare_input(md, budget_chars(route.context_tokens, route.max_output_tokens))
             source, messages = "full_text", en_messages(job.paper_id, job.title, text)
         else:
-            old = date.fromisoformat(job.daily_date) < utc_today() - timedelta(days=3)
-            if job.md_misses < 1 and not old:  # usually published within hours; try again next run
+            old = date.fromisoformat(job.daily_date) < utc_today() - timedelta(days=MD_OLD_DAYS)
+            waited = job.md_wait_hours
+            if not old and (waited is None or waited < MD_WAIT_HOURS):  # usually published within hours
                 if job.paper_id not in self.md_missed:
                     self.md_missed.add(job.paper_id)
                     await store.md_miss(self.db, job.paper_id)
-                self.log(f"skip {job.paper_id}: markdown not published yet")
+                waiting = f" (waited {waited:.1f} of {MD_WAIT_HOURS} h)" if waited is not None else ""
+                self.log(f"skip {job.paper_id}: markdown not published yet{waiting}")
                 self.md.release(job.paper_id)
                 raise SkipForNow
             if not job.abstract:
@@ -351,10 +368,13 @@ class Scheduler:
                           total_timeout=self.timing.call_timeout)
         summary_en = check_en(comp.content, source)
         await store.save_en(self.db, job.paper_id, summary_en, route, source, truncated)
+        if category := parse_category(strip_reasoning(comp.content)):  # missing → the classify pass fills it in
+            await store.set_category(self.db, job.paper_id, *category)
+            self.done["categorized"] += 1
         self.md.release(job.paper_id)
         self.log(f"ok   EN {job.paper_id} by {route.label} in {comp.seconds:.0f}s ({source})")
-        self.zh[route.family].insert(0, Job(job.paper_id, job.daily_date, job.title, job.abstract, job.md_misses,
-                                            "zh", route.family))
+        self.zh[route.family].insert(0, Job(job.paper_id, job.daily_date, job.title, job.abstract,
+                                            job.md_wait_hours, "zh", route.family))
 
     async def _zh(self, rs: RouteState, job: Job) -> None:
         row = await store.get_summary(self.db, job.paper_id)

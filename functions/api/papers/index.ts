@@ -15,6 +15,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     const { results } = await db
       .prepare(
         `SELECT p.id, p.title, p.authors, p.upvotes, p.thumbnail, p.withdrawn_at AS withdrawnAt,
+                p.category_major AS categoryMajor, p.category_minor AS categoryMinor,
                 s.title_zh AS titleZh, s.status AS summaryStatus, m.display_name AS model
            FROM papers p
            LEFT JOIN summaries s ON s.paper_id = p.id

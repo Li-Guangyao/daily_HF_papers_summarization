@@ -19,6 +19,8 @@ export interface PaperListItem {
   withdrawnAt: string | null;
   summaryStatus: "pending" | "ok" | "error" | "fatal" | null;
   model: string | null;
+  categoryMajor: string | null;
+  categoryMinor: string | null;
 }
 
 export interface PaperDetail {
@@ -36,6 +38,8 @@ export interface PaperDetail {
   hfAiSummary: string | null;
   hfAiKeywords: string[];
   withdrawnAt: string | null;
+  categoryMajor: string | null;
+  categoryMinor: string | null;
   status: "pending" | "ok" | "error" | "fatal" | null;
   source: "full_text" | "abstract" | null;
   summaryEn: string | null;

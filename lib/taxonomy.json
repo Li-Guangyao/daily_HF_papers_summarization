@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "majors": [
+    {
+      "id": "ml",
+      "zh": "机器学习基础",
+      "en": "ML Foundations",
+      "minors": [
+        { "id": "ml.paradigms", "zh": "学习范式", "en": "Learning paradigms", "zhDesc": "监督 / 无监督 / 半监督 / 自监督学习", "desc": "supervised, unsupervised, semi-supervised and self-supervised learning, representation learning" },
+        { "id": "ml.theory", "zh": "学习理论", "en": "Learning theory", "zhDesc": "泛化、PAC、样本复杂度", "desc": "generalization, PAC learning, sample complexity, theoretical analysis of learning" },
+        { "id": "ml.optimization", "zh": "优化方法", "en": "Optimization", "zhDesc": "SGD、Adam、二阶优化", "desc": "optimizers and training dynamics: SGD, Adam, second-order methods, learning-rate schedules" },
+        { "id": "ml.probabilistic", "zh": "概率模型", "en": "Probabilistic models", "zhDesc": "贝叶斯推断、图模型、高斯过程", "desc": "Bayesian inference, graphical models, Gaussian processes, uncertainty estimation" },
+        { "id": "ml.transfer", "zh": "迁移与持续学习", "en": "Transfer & continual", "zhDesc": "迁移学习、元学习、持续学习、联邦学习", "desc": "transfer learning, meta-learning, continual learning, federated learning" },
+        { "id": "ml.graph", "zh": "图学习", "en": "Graph learning", "zhDesc": "图神经网络（节点分类、链接预测、图生成）", "desc": "graph neural networks: node classification, link prediction, graph generation" },
+        { "id": "ml.causal", "zh": "因果推断", "en": "Causal inference", "zhDesc": "因果发现、反事实推理", "desc": "causal discovery, counterfactual reasoning" },
+        { "id": "ml.robustness", "zh": "鲁棒与分布外", "en": "Robustness & OOD", "zhDesc": "对抗样本、域适应、分布外泛化", "desc": "adversarial examples, domain adaptation, out-of-distribution generalization" }
+      ]
+    },
+    {
+      "id": "cv",
+      "zh": "计算机视觉",
+      "en": "Computer Vision",
+      "minors": [
+        { "id": "cv.image", "zh": "图像理解", "en": "Image understanding", "zhDesc": "分类、检测、分割、关键点", "desc": "image classification, detection, segmentation, keypoints, vision backbones" },
+        { "id": "cv.video", "zh": "视频理解", "en": "Video understanding", "zhDesc": "动作识别、目标跟踪", "desc": "action recognition, object tracking, temporal understanding of video (without a language model at the core)" },
+        { "id": "cv.3d", "zh": "3D 视觉", "en": "3D vision", "zhDesc": "三维重建、NeRF、3D Gaussian Splatting、点云、视觉 SLAM、3D 生成", "desc": "3D reconstruction, NeRF, 3D Gaussian Splatting, point clouds, visual SLAM, depth estimation, 3D and 4D generation (including text-to-3D)" },
+        { "id": "cv.generation", "zh": "视觉生成", "en": "Visual generation", "zhDesc": "扩散模型、GAN、图像/视频生成与编辑（含文生图、文生视频）", "desc": "diffusion models, GANs, image and video generation and editing, including text-to-image and text-to-video" },
+        { "id": "cv.lowlevel", "zh": "底层视觉", "en": "Low-level vision", "zhDesc": "去噪、超分辨率、去模糊、图像修复", "desc": "denoising, super-resolution, deblurring, image restoration and inpainting" },
+        { "id": "cv.human", "zh": "人体与人脸", "en": "Humans & faces", "zhDesc": "姿态估计、人脸识别、数字人", "desc": "human pose estimation, face recognition, avatars and digital humans, human motion generation" },
+        { "id": "cv.domain", "zh": "医学与遥感影像", "en": "Medical & remote sensing", "zhDesc": "医学影像、遥感图像", "desc": "medical image analysis and remote sensing / satellite imagery" }
+      ]
+    },
+    {
+      "id": "nlp",
+      "zh": "自然语言处理",
+      "en": "NLP",
+      "minors": [
+        { "id": "nlp.understanding", "zh": "文本理解与抽取", "en": "Text understanding", "zhDesc": "文本分类、情感分析、信息抽取（命名实体、关系抽取）", "desc": "text classification, sentiment analysis, information extraction (named entities, relations)" },
+        { "id": "nlp.generation", "zh": "翻译/问答/对话", "en": "MT, QA & dialogue", "zhDesc": "机器翻译、摘要、问答、对话系统", "desc": "machine translation, summarization, question answering, dialogue systems" },
+        { "id": "nlp.linguistics", "zh": "语言学结构", "en": "Linguistic structure", "zhDesc": "句法分析、语义分析", "desc": "syntactic parsing, semantic parsing, linguistic analysis" },
+        { "id": "nlp.multilingual", "zh": "多语言与低资源", "en": "Multilingual", "zhDesc": "多语言与低资源语言", "desc": "multilingual models, low-resource and non-English languages" },
+        { "id": "nlp.social", "zh": "计算社会科学", "en": "Social science", "zhDesc": "舆论分析、虚假信息检测", "desc": "computational social science, opinion analysis, misinformation detection" }
+      ]
+    },
+    {
+      "id": "llm",
+      "zh": "大模型",
+      "en": "LLMs",
+      "minors": [
+        { "id": "llm.pretraining", "zh": "预训练与架构", "en": "Pre-training", "zhDesc": "数据工程、Scaling Law、架构（Transformer / MoE / 状态空间模型）", "desc": "pre-training data, scaling laws, model architectures (Transformer, MoE, state-space models), new open foundation models and technical reports" },
+        { "id": "llm.posttraining", "zh": "后训练", "en": "Post-training", "zhDesc": "指令微调、RLHF、DPO、推理能力训练（含 GRPO 等 RL 训练）", "desc": "instruction tuning, RLHF, DPO, reward models, and RL training of LLMs for reasoning (GRPO, RLVR and similar)" },
+        { "id": "llm.reasoning", "zh": "推理增强", "en": "Reasoning", "zhDesc": "思维链、测试时计算、工具调用", "desc": "chain-of-thought, test-time compute and scaling, self-reflection, tool use, math and logical reasoning with LLMs (inference-time methods and analysis)" },
+        { "id": "llm.efficiency", "zh": "高效化", "en": "Efficiency", "zhDesc": "量化、剪枝、蒸馏、长上下文、推理加速", "desc": "quantization, pruning, distillation, long context, KV cache, speculative decoding, inference and training speed-ups" },
+        { "id": "llm.rag", "zh": "检索增强", "en": "RAG", "zhDesc": "检索增强生成（RAG）", "desc": "retrieval-augmented generation, retrievers and embeddings for LLMs, search-augmented LLMs" },
+        { "id": "llm.agents", "zh": "智能体", "en": "Agents", "zhDesc": "Agent 规划、记忆、多智能体协作、代码智能体、GUI / 网页智能体", "desc": "LLM agents: planning, memory, multi-agent collaboration, coding agents, GUI / web / computer-use agents, deep research agents" },
+        { "id": "llm.evaluation", "zh": "评测与基准", "en": "Benchmarks", "zhDesc": "评测与基准", "desc": "benchmarks, evaluation methods and analysis of LLM capabilities (use this when the main contribution is a benchmark or evaluation)" },
+        { "id": "llm.factuality", "zh": "幻觉与知识编辑", "en": "Hallucination", "zhDesc": "幻觉、事实性、知识编辑", "desc": "hallucination, factuality, knowledge editing, calibration of LLMs" }
+      ]
+    },
+    {
+      "id": "rl",
+      "zh": "强化学习",
+      "en": "Reinforcement Learning",
+      "minors": [
+        { "id": "rl.modelfree", "zh": "无模型 RL", "en": "Model-free RL", "zhDesc": "值函数方法、策略梯度、Actor-Critic", "desc": "value-based methods, policy gradients, actor-critic algorithms" },
+        { "id": "rl.modelbased", "zh": "基于模型的 RL", "en": "Model-based RL", "zhDesc": "世界模型、规划", "desc": "model-based RL, world models used for planning and control" },
+        { "id": "rl.offline", "zh": "离线与模仿学习", "en": "Offline & imitation", "zhDesc": "离线 RL、模仿学习、逆强化学习", "desc": "offline RL, imitation learning, inverse RL (outside robotics)" },
+        { "id": "rl.multiagent", "zh": "多智能体 RL", "en": "Multi-agent RL", "zhDesc": "合作、竞争、通信", "desc": "multi-agent reinforcement learning: cooperation, competition, communication" },
+        { "id": "rl.exploration", "zh": "探索与奖励", "en": "Exploration & reward", "zhDesc": "探索、奖励设计、分层 RL", "desc": "exploration, reward design, hierarchical RL" },
+        { "id": "rl.applications", "zh": "RL 应用", "en": "RL applications", "zhDesc": "游戏、推荐、控制等", "desc": "RL applied to games, recommendation, control and other domains (RL for LLMs goes to llm.posttraining, RL for robots to robot.learning)" }
+      ]
+    },
+    {
+      "id": "mm",
+      "zh": "多模态",
+      "en": "Multimodal",
+      "minors": [
+        { "id": "mm.vlm", "zh": "视觉-语言模型", "en": "Vision-language", "zhDesc": "图文 / 视频理解、视觉问答、多模态推理", "desc": "vision-language models: image and video understanding with language, visual question answering, multimodal reasoning, document and chart understanding" },
+        { "id": "mm.unified", "zh": "统一多模态", "en": "Unified multimodal", "zhDesc": "理解与生成一体化、全模态（Omni）模型", "desc": "unified models that both understand and generate several modalities, any-to-any and omni models" },
+        { "id": "mm.audio", "zh": "语音与音频", "en": "Speech & audio", "zhDesc": "语音识别 ASR、语音合成 TTS、音频 / 音乐生成、语音大模型", "desc": "speech recognition, text-to-speech, spoken language models, audio and music understanding and generation" },
+        { "id": "mm.embodied", "zh": "具身 VLA", "en": "Embodied VLA", "zhDesc": "视觉-语言-动作模型（VLA）", "desc": "vision-language-action models and embodied multimodal foundation models" }
+      ]
+    },
+    {
+      "id": "safety",
+      "zh": "安全与对齐",
+      "en": "Safety & Alignment",
+      "minors": [
+        { "id": "safety.alignment", "zh": "价值对齐", "en": "Alignment", "zhDesc": "价值对齐、可扩展监督", "desc": "value alignment, scalable oversight, honesty and deception (the safety angle, not RLHF technique papers)" },
+        { "id": "safety.interpretability", "zh": "可解释性", "en": "Interpretability", "zhDesc": "机制可解释性、特征归因", "desc": "mechanistic interpretability, feature attribution, probing, sparse autoencoders" },
+        { "id": "safety.fairness", "zh": "公平与偏见", "en": "Fairness & bias", "zhDesc": "公平性、偏见", "desc": "fairness and bias" },
+        { "id": "safety.redteam", "zh": "越狱与红队", "en": "Jailbreak & red-team", "zhDesc": "越狱与红队测试、防御", "desc": "jailbreaks, red teaming, attacks on and defenses of models, privacy and watermarking" },
+        { "id": "safety.governance", "zh": "AI 治理", "en": "Governance", "zhDesc": "AI 治理与政策", "desc": "AI governance, policy and societal impact" }
+      ]
+    },
+    {
+      "id": "kr",
+      "zh": "知识与推理",
+      "en": "Knowledge & Reasoning",
+      "minors": [
+        { "id": "kr.knowledge", "zh": "知识图谱", "en": "Knowledge graphs", "zhDesc": "知识图谱、知识表示", "desc": "knowledge graphs and knowledge representation" },
+        { "id": "kr.symbolic", "zh": "逻辑与神经符号", "en": "Logic & neuro-symbolic", "zhDesc": "逻辑推理、自动规划、形式化证明、神经符号 AI", "desc": "formal logic, automated planning, formal theorem proving, neuro-symbolic AI" }
+      ]
+    },
+    {
+      "id": "robot",
+      "zh": "机器人",
+      "en": "Robotics",
+      "minors": [
+        { "id": "robot.control", "zh": "规划与控制", "en": "Planning & control", "zhDesc": "路径规划、MPC、最优控制", "desc": "motion and path planning, MPC, optimal control" },
+        { "id": "robot.perception", "zh": "感知与定位", "en": "Perception", "zhDesc": "SLAM、传感器融合", "desc": "robot perception and localization, SLAM on robots, sensor fusion" },
+        { "id": "robot.manipulation", "zh": "操控", "en": "Manipulation", "zhDesc": "抓取、灵巧手、接触建模", "desc": "grasping, dexterous hands, contact modeling" },
+        { "id": "robot.locomotion", "zh": "足式与人形", "en": "Legged & humanoid", "zhDesc": "足式机器人、人形机器人", "desc": "legged robots, humanoid robots, whole-body control" },
+        { "id": "robot.driving", "zh": "自动驾驶", "en": "Autonomous driving", "zhDesc": "自动驾驶", "desc": "autonomous driving: perception, prediction, planning, driving world models and simulators" },
+        { "id": "robot.aerial", "zh": "无人机", "en": "Aerial robots", "zhDesc": "无人机控制、空中操控", "desc": "drones and aerial robots" },
+        { "id": "robot.multi", "zh": "多机器人", "en": "Multi-robot", "zhDesc": "编队、集群、协作搬运", "desc": "multi-robot systems: formation, swarms, cooperative transport" },
+        { "id": "robot.learning", "zh": "机器人学习", "en": "Robot learning", "zhDesc": "模仿学习、sim-to-real、具身智能", "desc": "robot learning: imitation learning, sim-to-real, RL for robots, embodied AI data and simulation" },
+        { "id": "robot.hri", "zh": "人机交互", "en": "Human-robot interaction", "zhDesc": "人机交互与协作", "desc": "human-robot interaction and collaboration" },
+        { "id": "robot.hardware", "zh": "本体与特种机器人", "en": "Hardware & special", "zhDesc": "机械设计、软体机器人、医疗 / 手术机器人", "desc": "mechanical design, soft robots, medical and surgical robots" }
+      ]
+    },
+    {
+      "id": "apps",
+      "zh": "交叉方向",
+      "en": "AI for X",
+      "minors": [
+        { "id": "apps.medical", "zh": "医疗 AI", "en": "Medicine", "zhDesc": "医学诊断、电子病历分析", "desc": "medical AI: diagnosis, clinical text and records, medical LLMs (medical images go to cv.domain)" },
+        { "id": "apps.science", "zh": "AI for Science", "en": "Science", "zhDesc": "材料、气象、物理仿真、生物、化学等", "desc": "AI for science: materials, weather and climate, physics simulation, biology, chemistry" },
+        { "id": "apps.software", "zh": "软件工程", "en": "Software engineering", "zhDesc": "代码生成、程序修复、软件测试", "desc": "AI for software engineering: code generation models, program repair, testing, code benchmarks (agent frameworks go to llm.agents)" },
+        { "id": "apps.finance", "zh": "金融", "en": "Finance", "zhDesc": "AI for Finance", "desc": "AI for finance" },
+        { "id": "apps.other", "zh": "其他应用", "en": "Other applications", "zhDesc": "教育、法律、农业等其他领域", "desc": "other application domains: education, law, agriculture, recommendation systems, and anything that fits no other category" }
+      ]
+    }
+  ]
+}
