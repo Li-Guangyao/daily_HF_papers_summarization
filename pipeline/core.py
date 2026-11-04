@@ -154,7 +154,9 @@ async def run(db, opts: RunOptions, *, client: httpx.AsyncClient | None = None,
                           hf_concurrency=opts.hf_concurrency, log=log)
         for r in rows:
             has_en = bool(r["has_en"])
-            sched.add(Job(r["paper_id"], r["daily_date"], r["title"], r["abstract"], int(r["md_misses"]),
+            wait = r["md_wait_hours"]
+            sched.add(Job(r["paper_id"], r["daily_date"], r["title"], r["abstract"],
+                          float(wait) if wait is not None else None,
                           "zh" if has_en else "en", r["family"] if has_en else None))
         log(f"plan     {len(rows)} papers to process with {sum(r.max_concurrency for r in healthy)} workers")
 

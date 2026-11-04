@@ -5,8 +5,12 @@ import pytest
 from pipeline.config import expand_dates, previous_workdays
 from pipeline.d1 import encode
 from pipeline.llm import PaperError, ProviderError, classify
-from pipeline.markdown import (ABSTRACT_NOTICE, OutputCheckError, check_en, check_zh, prepare_input,
+import asyncio
+import time
+
+from pipeline.markdown import (ABSTRACT_NOTICE, OutputCheckError, check_en, check_zh, prepare_input, snippet,
                                strip_reasoning)
+from pipeline.pool import RpmLimiter
 from pipeline.taxonomy import MINORS, TAXONOMY, parse_category
 from pipeline.tests.fakes import en_output, zh_output
 
@@ -78,6 +82,41 @@ def test_check_zh():
         check_zh(zh_output(n_sections=4), en)                                           # sections dropped
     with pytest.raises(OutputCheckError):
         check_zh(zh_output().replace("$$", ""), en)                                     # formula not preserved
+
+
+def test_check_zh_reads_tags_leniently():
+    en = en_output()
+    good_title, good_body = check_zh(zh_output(), en)
+    no_close = zh_output().replace("</summary_zh>", "")
+    assert check_zh(no_close, en) == (good_title, good_body)                            # missing closing tag
+    fenced = f"```markdown\n{zh_output()}\n```"
+    assert check_zh(fenced, en) == (good_title, good_body)                              # fenced output
+    bare = "# 测试论文\n\n" + good_body                                               # no tags at all
+    assert check_zh(bare, en) == ("测试论文", good_body)
+    assert check_zh("标题：测试论文\n" + good_body, en)[0] == "测试论文"
+    assert check_zh(good_body, en) == (None, good_body)                                 # no title: allowed
+    with pytest.raises(OutputCheckError) as err:
+        check_zh("抱歉，我无法完成。", en)
+    assert err.value.raw == "抱歉，我无法完成。"                                           # kept for the log
+
+
+def test_snippet_keeps_head_and_tail_on_one_line():
+    assert snippet("a\nb") == "a\\nb"
+    long = "x" * 300 + "MIDDLE" + "y" * 300
+    s = snippet(long)
+    assert s.startswith("x" * 250) and s.endswith("y" * 150) and "MIDDLE" not in s
+
+
+def test_rpm_limiter_spaces_starts_evenly():
+    async def scenario():
+        limiter = RpmLimiter(1200)          # 90% → 1080 per minute → one start every ~56 ms
+        t0 = time.monotonic()
+        for _ in range(4):
+            await limiter.acquire()
+        return time.monotonic() - t0
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed >= 3 * 60 / 1080 * 0.95  # no burst: the 2nd–4th starts each waited
 
 
 @pytest.mark.parametrize("status, body, kind", [

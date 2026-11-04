@@ -9,7 +9,18 @@ from collections.abc import Callable
 import httpx
 
 from pipeline.config import migration_sql
-from pipeline.d1 import LocalD1
+from pipeline.d1 import LocalD1, encode
+
+
+class StringParamsD1(LocalD1):
+    """LocalD1 that sends parameters the way RemoteD1 does: numbers as strings, NULLs inlined into the SQL.
+    SQLite compares a number with a string differently from two numbers, so the tests must see what D1 sees."""
+
+    async def query(self, sql, params=()):
+        return await super().query(*encode(sql, params))
+
+    async def batch(self, statements):
+        return await super().batch([encode(sql, params) for sql, params in statements])
 EN_HEADINGS = ["In a nutshell", "Why teaching robots to plan is hard", "The key idea: think in sketches",
                "How it works, step by step", "What the experiments show", "Limits and open questions"]
 ZH_HEADINGS = ["一分钟速览", "为什么教机器人规划这么难", "核心思路：先画草图", "一步步看它如何工作", "实验结果说明了什么",
@@ -97,12 +108,12 @@ class FakeWorld:
 
 def make_db(routes: list[tuple[str, str, int]]) -> LocalD1:
     """In-memory D1 with the real schema; routes = [(family, host, max_concurrency), ...]."""
-    db = LocalD1(":memory:")
+    db = StringParamsD1(":memory:")
     db.executescript(migration_sql())
     db.conn.execute("DELETE FROM llm_models")
     for i, (family, host, conc) in enumerate(routes, start=1):
         db.conn.execute(
             "INSERT INTO llm_models (id, family, display_name, provider, base_url, api_model, api_key_env, rpm_limit, "
-            "max_concurrency, context_tokens, max_output_tokens) VALUES (?, ?, ?, ?, ?, ?, 'FAKE_KEY', 600, ?, 100000, "
+            "max_concurrency, context_tokens, max_output_tokens) VALUES (?, ?, ?, ?, ?, ?, 'FAKE_KEY', 60000, ?, 100000, "
             "8000)", [i, family, family.upper(), host.split(".")[0], f"https://{host}/v1", f"model-{i}", conc])
     return db

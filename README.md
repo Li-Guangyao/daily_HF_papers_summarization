@@ -233,7 +233,9 @@ npx wrangler d1 execute hf-papers --remote --command "SELECT created_at, job, ta
 | Symptom | Check |
 |---|---|
 | Site says "No papers have been published yet" | `--status` for recent dates. A date appears once at least one of its papers is done. |
-| A date shows "N more papers are still being analyzed" | Normal for a few hours: papers whose full text HF hasn't published yet wait one run, then fall back to the abstract. The next run finishes them. |
+| A date shows "N more papers are still being analyzed" | Normal for a few hours: a paper whose full text HF hasn't published yet waits up to 10 hours from the first miss (`MD_WAIT_HOURS` in `pipeline/pool.py`), then falls back to the abstract. Later runs finish them. |
+| `paper error translate … missing <summary_zh>` | The model didn't follow the output format. The run log and `job_errors.message` show the start and end of what it returned. A paper is retried at most 3 times (30 s apart), then becomes `fatal` so its date can still become ready. |
+| OpenRouter shows `quota: … free-models-per-day` | Without credits OpenRouter allows only 50 free-model requests a day (each paper needs at least 2). With 10 USD of credits it is 1000 a day. |
 | A date is stuck in `processing` | `job_errors`. Usually a provider is down or out of quota. The next run continues automatically. |
 | Run summary says a model looks retired | Disable that row in `llm_models`. |
 | `D1 query failed` with HTTP 401/403 | `CF_API_TOKEN` needs the *D1 Edit* permission on the right account. |

@@ -94,7 +94,8 @@ async def reset_retired(db, start: str, end: str) -> int:
 async def unfinished(db, start: str, end: str) -> list[dict]:
     return await db.query(
         "SELECT s.paper_id, s.family, s.summary_en IS NOT NULL AS has_en, p.title, p.abstract, p.daily_date, "
-        "p.upvotes, p.md_misses FROM summaries s JOIN papers p ON p.id = s.paper_id "
+        "p.upvotes, (julianday('now') - julianday(p.md_first_miss_at)) * 24 AS md_wait_hours "
+        "FROM summaries s JOIN papers p ON p.id = s.paper_id "
         "WHERE p.daily_date BETWEEN ? AND ? AND p.withdrawn_at IS NULL AND s.status IN ('pending', 'error') "
         "AND s.attempts < ? ORDER BY p.daily_date, p.upvotes DESC",
         [start, end, MAX_ATTEMPTS])
@@ -116,7 +117,7 @@ async def save_en(db, paper_id: str, text: str, route: Route, source: str, trunc
         [text, route.family, route.id, source, PROMPT_VERSION, int(truncated), paper_id])
 
 
-async def save_zh(db, paper_id: str, title_zh: str, text: str, route: Route) -> None:
+async def save_zh(db, paper_id: str, title_zh: str | None, text: str, route: Route) -> None:
     await db.query(
         "UPDATE summaries SET title_zh = ?, summary_zh = ?, zh_model_id = ?, status = 'ok', last_error = NULL, "
         "updated_at = datetime('now') WHERE paper_id = ? AND family = ?",
@@ -147,10 +148,13 @@ async def unclassified(db, limit: int) -> list[dict]:
 
 async def paper_failure(db, paper_id: str, message: str) -> bool:
     """Count a paper error. Returns True when the summary became fatal."""
+    # Compare the column itself (the old value here), not an expression such as `attempts + 1`: D1 receives every
+    # parameter as a string, and only a column's INTEGER affinity turns '2' back into a number. `attempts + 1 >= '3'`
+    # is always false in SQLite, so papers used to retry forever.
     rows = await db.query(
         "UPDATE summaries SET attempts = attempts + 1, last_error = ?, updated_at = datetime('now'), "
-        "status = CASE WHEN attempts + 1 >= ? THEN 'fatal' ELSE 'error' END "
-        "WHERE paper_id = ? RETURNING status", [message[:500], MAX_ATTEMPTS, paper_id])
+        "status = CASE WHEN attempts >= ? THEN 'fatal' ELSE 'error' END "
+        "WHERE paper_id = ? RETURNING status", [message[:500], MAX_ATTEMPTS - 1, paper_id])
     return bool(rows) and rows[0]["status"] == "fatal"
 
 
@@ -162,7 +166,8 @@ async def mark_error(db, paper_id: str, message: str) -> None:
 
 
 async def md_miss(db, paper_id: str) -> None:
-    await db.query("UPDATE papers SET md_misses = md_misses + 1 WHERE id = ?", [paper_id])
+    await db.query("UPDATE papers SET md_misses = md_misses + 1, "
+                   "md_first_miss_at = COALESCE(md_first_miss_at, datetime('now')) WHERE id = ?", [paper_id])
 
 
 async def log_error(db, job: str, target: str, message: str, model_id: int | None = None,
