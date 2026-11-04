@@ -2,7 +2,7 @@
 
 Detailed English and Chinese walkthroughs of the [Hugging Face daily papers](https://huggingface.co/papers).
 
-- **GitHub Actions** runs the pipeline Tuesday–Saturday. It fetches the previous workday's papers, has an LLM write a long English walkthrough and a Chinese version of each paper, and stores them in Cloudflare D1.
+- **GitHub Actions** runs the pipeline Tuesday–Saturday. It fetches the previous workday's papers, has an LLM write a long English walkthrough and a Chinese version of each paper, and assigns each paper a research category. Everything is stored in Cloudflare D1.
 - **Cloudflare Pages** serves the website, plus a small read-only API (Pages Functions) that reads D1.
 
 ```
@@ -13,11 +13,14 @@ pipeline/            Python pipeline (shared by GitHub Actions and the local bac
   pool.py            worker pools, rate limiter, failover, one model per paper
   llm.py, hf.py      provider client (OpenAI-compatible streaming) and Hugging Face client
   store.py, d1.py    all SQL; D1 REST client and a local SQLite stand-in
-  prompts.py         the beginner-level English prompt and the Chinese prompt (bump PROMPT_VERSION when you edit them)
+  prompts.py         the beginner-level English prompt, the Chinese prompt and the category prompt (bump PROMPT_VERSION when you edit them)
+  taxonomy.py        loads lib/taxonomy.json; parses the <category> tag
+  classify.py        end-of-run pass: categorizes papers that have none, from title + abstract
   tests/             unit tests + end-to-end tests with fake providers
-migrations/          D1 schema, default llm_models rows, translate_options (apply with npm run db:migrate:*)
+migrations/          D1 schema, default llm_models rows, translate_options, paper categories (applied by deploy-web.yml, or npm run db:migrate:*)
 functions/api/       Pages Functions: /api/dates, /api/papers, /api/papers/:id
 lib/api.ts           helpers for the functions (edge cache, JSON)
+lib/taxonomy.json    the paper categories (top level + sub-categories), shared by the pipeline and the website
 web/                 React + Tailwind frontend (Vite); web/src/markdown.ts renders Markdown + LaTeX (KaTeX)
 .github/workflows/   pipeline.yml (schedule), deploy-web.yml, tests.yml
 scripts/             probe_concurrency.py (measure a provider's limits)
@@ -145,7 +148,7 @@ All commands run from the repository root.
    | `CF_API_TOKEN` | Token from step 1 |
    | `CF_ACCOUNT_ID` | From `npx wrangler whoami` |
    | `D1_DATABASE_ID` | From `wrangler d1 create` |
-   | `CF_PAGES_TOKEN` | Optional; only needed for `deploy-web.yml` |
+   | `CF_PAGES_TOKEN` | For `deploy-web.yml`: deploys the site and applies new D1 migrations |
 
    Optionally, under the *Variables* tab, set `TIME_BUDGET_MINUTES` (default 45).
 3. **Merge into `main`.** Scheduled workflows only run from the default branch (`main`), so the workflow files and the `database_id` in `wrangler.toml` must be on `main`.
@@ -199,6 +202,21 @@ To add a provider, insert a row (same `family` = same model), add its key as a G
 ```bash
 npx wrangler d1 execute hf-papers --remote --command "SELECT created_at, job, target, model_id, http_status, error_code, message FROM job_errors ORDER BY id DESC LIMIT 20"
 ```
+
+**Categories.** Each paper has a top-level category (`papers.category_major`, e.g. `llm`) and a sub-category (`papers.category_minor`, e.g. `llm.agents`). They come from `lib/taxonomy.json`.
+
+- New papers get theirs from the English-walkthrough request: the model writes a `<category>…</category>` tag before the walkthrough.
+- At the end of every run, papers with no category are classified from title + abstract. This covers papers stored before categories existed, walkthroughs without a valid tag, and withdrawn or failed papers. A paper is tried at most 3 times; failures are in `job_errors` with `job = 'classify'`.
+- On the website, the list page shows the day's categories as boxes with paper counts. Click a sub-category, or a top-level title, to filter; the filter is kept in the URL (`?cat=llm.agents`).
+- To change the categories, edit `lib/taxonomy.json`. Keep the ids stable: renaming an id leaves papers with an unknown id, which the website shows as uncategorized. To re-classify everything after a big change:
+  ```bash
+  npx wrangler d1 execute hf-papers --remote --command "UPDATE papers SET category_major = NULL, category_minor = NULL, category_attempts = 0"
+  ```
+  The next run classifies them again from title + abstract.
+- Count papers per category:
+  ```bash
+  npx wrangler d1 execute hf-papers --remote --command "SELECT category_minor, COUNT(*) AS n FROM papers GROUP BY 1 ORDER BY n DESC"
+  ```
 
 **Change a prompt:**
 

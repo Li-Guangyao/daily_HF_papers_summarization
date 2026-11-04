@@ -17,8 +17,9 @@ ZH_HEADINGS = ["一分钟速览", "为什么教机器人规划这么难", "核�
 FORMULA = "\n\n$$\nL = L_{rec} + \\lambda L_{KL}\n$$\n\nHere $L$ is the total loss.\n\n"
 
 
-def en_output(headings=EN_HEADINGS) -> str:
-    return "\n\n".join(f"## {h}\n" + " ".join(["detail"] * 160) + (FORMULA if i == 3 else "")
+def en_output(headings=EN_HEADINGS, category: str | None = "cv.generation") -> str:
+    tag = f"<category>{category}</category>\n\n" if category else ""
+    return tag + "\n\n".join(f"## {h}\n" + " ".join(["detail"] * 160) + (FORMULA if i == 3 else "")
                          for i, h in enumerate(headings)) + "\n"
 
 
@@ -44,12 +45,14 @@ def hf_item(paper_id: str, upvotes: int, withdrawn: bool = False) -> dict:
             "thumbnail": "https://img", "numComments": 1}
 
 
-Behavior = Callable[[dict, str], httpx.Response]  # (request body, "en" | "zh" | "health") -> response
+Behavior = Callable[[dict, str], httpx.Response]  # (request body, "en" | "zh" | "classify" | "health") -> response
 
 
 def ok_behavior(body: dict, kind: str) -> httpx.Response:
     if kind == "health":
         return sse("OK")
+    if kind == "classify":
+        return sse("<category>llm.agents</category>")
     return sse(en_output() if kind == "en" else zh_output())
 
 
@@ -82,7 +85,8 @@ class FakeWorld:
                                              "\n## References\n[1] x")
         body = json.loads(request.content)
         system = body["messages"][0]["content"]
-        kind = "health" if body["max_tokens"] == 16 else ("zh" if system.startswith("你是") else "en")
+        kind = ("health" if body["max_tokens"] == 16 else "zh" if system.startswith("你是")
+                else "classify" if system.startswith("You classify") else "en")
         self.calls[(host, kind)] += 1
         self.bodies.append((host, kind, body))
         return self.providers[host](body, kind)

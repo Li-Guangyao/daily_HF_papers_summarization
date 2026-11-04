@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "katex/dist/katex.min.css";
 import { fetchPaper, type PaperDetail } from "./api";
+import { categoryOf, majorName, minorDesc, minorName } from "./categories";
 import { t, type Lang } from "./i18n";
 import { renderMarkdown } from "./markdown";
 
@@ -37,6 +38,7 @@ export default function DetailPage({ lang }: { lang: Lang }) {
       href: paper.githubRepo,
     },
   ].filter(Boolean) as { label: string; href: string }[];
+  const category = categoryOf(paper);
   const provider =
     paper.enProvider && (lang === "zh" && paper.zhProvider ? paper.zhProvider : paper.enProvider);
 
@@ -65,6 +67,15 @@ export default function DetailPage({ lang }: { lang: Lang }) {
             {s.listed} {paper.dailyDate}
           </span>
           <span className="tabular-nums">▲ {paper.upvotes}</span>
+          {category && (
+            <a
+              href={`/?date=${paper.dailyDate}&cat=${encodeURIComponent(category.minor)}&lang=${lang}`}
+              title={minorDesc(category.minor, lang)}
+              className="text-amber-700 hover:underline dark:text-amber-400"
+            >
+              {majorName(category.major, lang)} · {minorName(category.minor, lang)}
+            </a>
+          )}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">

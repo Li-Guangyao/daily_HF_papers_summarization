@@ -11,6 +11,7 @@ export const onRequestGet: PagesFunction<Env, "id"> = async (ctx) => {
               p.thumbnail, p.project_page AS projectPage, p.github_repo AS githubRepo, p.github_stars AS githubStars,
               p.upvotes, p.num_comments AS numComments, p.hf_ai_summary AS hfAiSummary,
               p.hf_ai_keywords AS hfAiKeywords, p.withdrawn_at AS withdrawnAt,
+              p.category_major AS categoryMajor, p.category_minor AS categoryMinor,
               s.status, s.source, s.summary_en AS summaryEn, s.title_zh AS titleZh, s.summary_zh AS summaryZh,
               em.display_name AS model, em.provider AS enProvider, zm.provider AS zhProvider
          FROM papers p

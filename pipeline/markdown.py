@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .taxonomy import strip_category
+
 REFERENCES_RE = re.compile(r"^#{1,3}\s*(?:[\dIVX]+(?:\.\d+)*\.?\s*)?(?:References|Bibliography)\b", re.I | re.M)
 IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
@@ -59,7 +61,7 @@ def check_en(raw: str, source: str) -> str:
     """Return the cleaned English explanation, or raise OutputCheckError.
 
     The structure is up to the model; we only require a few sections, enough length and balanced $$ blocks."""
-    text = strip_reasoning(raw)
+    text = strip_category(strip_reasoning(raw))
     start = text.find("## ")
     if start == -1:
         raise OutputCheckError("no level-2 headings")

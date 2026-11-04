@@ -7,7 +7,7 @@ import pytest
 from pipeline.core import AllProvidersDown, RunOptions, run
 from pipeline.lock import RunLock
 from pipeline.pool import Timing
-from pipeline.tests.fakes import FakeWorld, failing, hf_item, make_db, ok_behavior
+from pipeline.tests.fakes import FakeWorld, en_output, failing, hf_item, make_db, ok_behavior, sse
 
 DAY = "2026-01-05"  # an old Monday: missing markdown falls back to the abstract right away
 FAST = Timing(retry_base=0.01, rate_limit_pause=0.01, cooling=0.05, idle_poll=0.01)
@@ -160,3 +160,40 @@ def test_busy_provider_still_counts_as_available():
         return (await rows(db, "SELECT status FROM summaries"))[0]["status"]
 
     assert go(scenario()) == "ok"
+
+
+def test_categories_from_walkthrough_and_from_title_and_abstract():
+    db = make_db([("nemo", "a.test", 2)])
+    # An older paper stored before categories existed: summarized, but without a category.
+    db.conn.execute("INSERT INTO daily_lists (date, paper_count, status, fetched_at) VALUES ('2026-01-02', 1, 'ready', 'x')")
+    db.conn.execute("INSERT INTO papers (id, daily_date, title, authors, abstract) "
+                    "VALUES ('2601.00900', '2026-01-02', 'Old paper', '[]', 'An old abstract.')")
+    db.conn.execute("INSERT INTO summaries (paper_id, status) VALUES ('2601.00900', 'ok')")
+
+    def behave(body, kind):
+        text = str(body)
+        if kind == "en" and "2601.00002" in text:
+            return sse(en_output(category="not.a.category"))   # no valid tag: classified afterwards
+        if kind == "classify" and "Paper 2601.00003" in text:
+            return sse("I think it is about agents.")          # unusable answer: counted, retried next run
+        return ok_behavior(body, kind)
+
+    papers = [hf_item("2601.00001", 9), hf_item("2601.00002", 8), hf_item("2601.00003", 7, withdrawn=True)]
+    world = FakeWorld({DAY: papers}, {"a.test": behave})
+
+    async def scenario():
+        async with world.client() as client:
+            report = await run(db, opts(), client=client)
+            again = await run(db, opts(), client=client)
+        cats = {r["id"]: r for r in await rows(db, "SELECT id, category_major, category_minor, category_attempts "
+                                                   "FROM papers")}
+        return report, again, cats
+
+    report, again, cats = go(scenario())
+    assert (cats["2601.00001"]["category_major"], cats["2601.00001"]["category_minor"]) == ("cv", "cv.generation")
+    assert cats["2601.00002"]["category_minor"] == "llm.agents"                  # from title + abstract
+    assert cats["2601.00900"]["category_minor"] == "llm.agents"                  # history gets classified too
+    assert cats["2601.00003"]["category_minor"] is None and cats["2601.00003"]["category_attempts"] == 2
+    assert report.done["categorized"] == 1 and report.categories["ok"] == 2 and report.categories["failed"] == 1
+    assert "Categories from walkthroughs: 1" in report.markdown()
+    assert world.calls[("a.test", "classify")] == 3 + 1                          # run 2 only retries the failed one

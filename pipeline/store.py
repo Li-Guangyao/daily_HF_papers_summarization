@@ -71,6 +71,9 @@ async def has_work(db, dates: list[str], since: str) -> bool:
         "SELECT COUNT(*) AS n FROM summaries s JOIN papers p ON p.id = s.paper_id "
         "WHERE p.daily_date >= ? AND p.withdrawn_at IS NULL AND s.status IN ('pending', 'error') "
         "AND s.attempts < ?", [since, MAX_ATTEMPTS])
+    if int(rows[0]["n"]) > 0:
+        return True
+    rows = await db.query(f"SELECT COUNT(*) AS n {UNCLASSIFIED}", [MAX_ATTEMPTS])
     return int(rows[0]["n"]) > 0
 
 
@@ -118,6 +121,28 @@ async def save_zh(db, paper_id: str, title_zh: str, text: str, route: Route) -> 
         "UPDATE summaries SET title_zh = ?, summary_zh = ?, zh_model_id = ?, status = 'ok', last_error = NULL, "
         "updated_at = datetime('now') WHERE paper_id = ? AND family = ?",
         [title_zh, text, route.id, paper_id, route.family])
+
+
+async def set_category(db, paper_id: str, major: str, minor: str) -> None:
+    await db.query("UPDATE papers SET category_major = ?, category_minor = ?, updated_at = datetime('now') "
+                   "WHERE id = ?", [major, minor, paper_id])
+
+
+async def category_failure(db, paper_id: str) -> None:
+    await db.query("UPDATE papers SET category_attempts = category_attempts + 1 WHERE id = ?", [paper_id])
+
+
+UNCLASSIFIED = (
+    "FROM papers p LEFT JOIN summaries s ON s.paper_id = p.id "
+    "WHERE p.category_minor IS NULL AND p.category_attempts < ? "
+    "AND (s.status IS NULL OR s.status IN ('ok', 'fatal'))"  # settled papers; pending ones get it from the EN step
+)
+
+
+async def unclassified(db, limit: int) -> list[dict]:
+    """Papers (any date) that still need a category, newest first."""
+    return await db.query(f"SELECT p.id, p.title, p.abstract {UNCLASSIFIED} ORDER BY p.daily_date DESC, p.upvotes DESC "
+                          "LIMIT ?", [MAX_ATTEMPTS, limit])
 
 
 async def paper_failure(db, paper_id: str, message: str) -> bool:

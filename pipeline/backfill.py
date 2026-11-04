@@ -93,12 +93,12 @@ async def dry_run(args, dates: list[str]) -> int:
     print(report.markdown())
     rows = await tmp.query(
         "SELECT p.daily_date, p.id, p.title, s.status, s.title_zh, s.summary_en, s.summary_zh, s.source, "
-        "m.display_name, m.provider FROM summaries s JOIN papers p ON p.id = s.paper_id "
+        "m.display_name, m.provider, p.category_minor FROM summaries s JOIN papers p ON p.id = s.paper_id "
         "LEFT JOIN llm_models m ON m.id = s.en_model_id WHERE s.summary_en IS NOT NULL")
     for r in rows:
         folder = OUT_DIR / r["daily_date"]
         folder.mkdir(parents=True, exist_ok=True)
-        header = f"<!-- {r['id']} · {r['display_name']} via {r['provider']} · source={r['source']} -->\n"
+        header = f"<!-- {r['id']} · {r['display_name']} via {r['provider']} · source={r['source']} · category={r['category_minor']} -->\n"
         (folder / f"{r['id']}.en.md").write_text(f"{header}# {r['title']}\n\n{r['summary_en']}\n", encoding="utf-8")
         if r["summary_zh"]:
             (folder / f"{r['id']}.zh.md").write_text(f"{header}# {r['title_zh']}\n\n{r['summary_zh']}\n",

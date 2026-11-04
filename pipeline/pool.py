@@ -17,8 +17,9 @@ import httpx
 from . import hf, store
 from .config import Route, utc_today
 from .llm import PaperError, ProviderError, chat
-from .markdown import OutputCheckError, budget_chars, check_en, check_zh, prepare_input
+from .markdown import OutputCheckError, budget_chars, check_en, check_zh, prepare_input, strip_reasoning
 from .prompts import en_messages, zh_messages
+from .taxonomy import parse_category
 
 
 @dataclass
@@ -351,6 +352,9 @@ class Scheduler:
                           total_timeout=self.timing.call_timeout)
         summary_en = check_en(comp.content, source)
         await store.save_en(self.db, job.paper_id, summary_en, route, source, truncated)
+        if category := parse_category(strip_reasoning(comp.content)):  # missing → the classify pass fills it in
+            await store.set_category(self.db, job.paper_id, *category)
+            self.done["categorized"] += 1
         self.md.release(job.paper_id)
         self.log(f"ok   EN {job.paper_id} by {route.label} in {comp.seconds:.0f}s ({source})")
         self.zh[route.family].insert(0, Job(job.paper_id, job.daily_date, job.title, job.abstract, job.md_misses,

@@ -7,6 +7,7 @@ from pipeline.d1 import encode
 from pipeline.llm import PaperError, ProviderError, classify
 from pipeline.markdown import (ABSTRACT_NOTICE, OutputCheckError, check_en, check_zh, prepare_input,
                                strip_reasoning)
+from pipeline.taxonomy import MINORS, TAXONOMY, parse_category
 from pipeline.tests.fakes import en_output, zh_output
 
 
@@ -44,8 +45,10 @@ def test_strip_reasoning():
 
 
 def test_check_en_accepts_any_structure():
-    good = en_output()
+    good = en_output(category=None)
     assert check_en("Sure! Here it is:\n" + good, "full_text") == good.strip()      # preamble dropped
+    assert check_en(en_output(), "full_text") == good.strip()                         # category tag dropped
+    assert "<category>" not in check_en(good + "\n<category>llm.rag</category>\n", "full_text")
     custom = en_output(["In a nutshell", "Background", "What they found", "Why it matters", "Caveats", "Next"])
     assert check_en(custom, "full_text").startswith("## In a nutshell")
 
@@ -92,3 +95,19 @@ def test_classify_provider_errors(status, body, kind):
 
 def test_classify_paper_error():
     assert isinstance(classify(400, '{"error":{"code":"1301","message":"sensitive content"}}'), PaperError)
+
+
+def test_parse_category():
+    assert parse_category("<category>llm.agents</category>\n## In a nutshell") == ("llm", "llm.agents")
+    assert parse_category("<think>maybe</think><category> CV.Generation </category>") == ("cv", "cv.generation")
+    assert parse_category("<category>llm.unknown</category><category>mm.vlm</category>") == ("mm", "mm.vlm")
+    assert parse_category("agents") is None
+
+
+def test_taxonomy_is_consistent():
+    ids = [m["id"] for major in TAXONOMY["majors"] for m in major["minors"]]
+    assert len(ids) == len(set(ids)) == len(MINORS)
+    for major in TAXONOMY["majors"]:
+        assert major["zh"] and major["en"]
+        for m in major["minors"]:
+            assert m["id"].startswith(major["id"] + ".") and m["zh"] and m["en"] and m["desc"]
