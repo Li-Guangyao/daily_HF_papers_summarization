@@ -1,0 +1,38 @@
+{
+  "name": "hf-papers-digest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite web",
+    "dev:api": "wrangler pages dev --port 8788",
+    "build": "vite build web",
+    "typecheck": "tsc -p web --noEmit && tsc -p functions --noEmit",
+    "preview": "npm run build && wrangler pages dev --port 8788",
+    "deploy": "npm run build && wrangler pages deploy",
+    "db:migrate:local": "wrangler d1 migrations apply hf-papers --local",
+    "db:migrate:remote": "wrangler d1 migrations apply hf-papers --remote",
+    "test": "vitest run --root web"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "katex": "^0.18.10",
+    "marked": "^18.1.1",
+    "marked-katex-extension": "^5.1.13",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261023.1",
+    "@tailwindcss/typography": "^0.5.20",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
+  }
+}

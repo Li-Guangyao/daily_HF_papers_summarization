@@ -1,0 +1,171 @@
+import { useEffect, useRef, useState } from "react";
+import { fetchDates, fetchPapers, type PaperListItem, type ProcessingDate, type ReadyDate } from "./api";
+import { t, type Lang } from "./i18n";
+
+function weekday(date: string, lang: Lang) {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US", {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+}
+
+export default function ListPage({ lang }: { lang: Lang }) {
+  const s = t(lang);
+  const [ready, setReady] = useState<ReadyDate[] | null>(null);
+  const [processing, setProcessing] = useState<ProcessingDate[]>([]);
+  const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.search).get("date"));
+  const [papers, setPapers] = useState<PaperListItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchDates()
+      .then((d) => {
+        setReady(d.ready);
+        setProcessing(d.processing);
+        setSelected((cur) => cur ?? d.ready[0]?.date ?? null);
+      })
+      .catch(() => setError(s.loadError));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!selected || !ready) return;
+    const url = new URL(location.href);
+    url.searchParams.set("date", selected);
+    history.replaceState(null, "", url);
+    stripRef.current?.querySelector(`[data-date="${selected}"]`)?.scrollIntoView({ inline: "center", block: "nearest" });
+    if (!ready.some((d) => d.date === selected)) {
+      setPapers([]);
+      return;
+    }
+    setPapers(null);
+    fetchPapers(selected)
+      .then((r) => setPapers(r.papers))
+      .catch(() => setError(s.loadError));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, ready]);
+
+  if (error) return <Notice>{error}</Notice>;
+  if (!ready) return <Notice>{s.loading}</Notice>;
+  if (ready.length === 0 && processing.length === 0) return <Notice>{s.noDates}</Notice>;
+
+  const isReady = ready.some((d) => d.date === selected);
+  const dates = [...ready].reverse(); // oldest → newest, so the newest sits at the right edge
+
+  return (
+    <main className="mx-auto w-full max-w-4xl flex-1 px-4 pb-16">
+      <p className="mt-6 text-sm text-stone-500 dark:text-stone-400">{s.tagline}</p>
+
+      {processing.map((p) => (
+        <div
+          key={p.date}
+          className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          {s.processing(p.date, p.papersDone ?? 0, p.paperCount ?? 0)}
+        </div>
+      ))}
+
+      <div className="mt-5 flex items-end gap-3">
+        <div ref={stripRef} className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+          {dates.map((d) => (
+            <button
+              key={d.date}
+              data-date={d.date}
+              onClick={() => setSelected(d.date)}
+              className={`flex shrink-0 flex-col items-center rounded-xl border px-3 py-1.5 text-sm transition ${
+                d.date === selected
+                  ? "border-amber-500 bg-amber-500 text-white shadow-sm"
+                  : "border-stone-200 bg-white hover:border-stone-400 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
+              }`}
+            >
+              <span className="text-xs opacity-80">{weekday(d.date, lang)}</span>
+              <span className="font-medium tabular-nums">{d.date.slice(5)}</span>
+            </button>
+          ))}
+        </div>
+        <label className="shrink-0 text-xs text-stone-500 dark:text-stone-400">
+          <span className="mb-1 block">{s.jumpTo}</span>
+          <input
+            type="date"
+            value={selected ?? ""}
+            min={dates[0]?.date}
+            max={dates[dates.length - 1]?.date}
+            onChange={(e) => e.target.value && setSelected(e.target.value)}
+            className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+          />
+        </label>
+      </div>
+
+      {selected && (
+        <h1 className="mt-6 text-lg font-semibold">
+          {selected}
+          {isReady && papers && (
+            <span className="ml-2 text-sm font-normal text-stone-500 dark:text-stone-400">
+              {papers.length} {s.papers}
+            </span>
+          )}
+        </h1>
+      )}
+
+      {!isReady ? (
+        <p className="mt-4 text-stone-500 dark:text-stone-400">{s.notReady}</p>
+      ) : !papers ? (
+        <p className="mt-4 text-stone-500 dark:text-stone-400">{s.loading}</p>
+      ) : (
+        <ol className="mt-3 divide-y divide-stone-200 dark:divide-stone-800">
+          {papers.map((p, i) => (
+            <PaperRow key={p.id} paper={p} rank={i + 1} lang={lang} />
+          ))}
+        </ol>
+      )}
+    </main>
+  );
+}
+
+function PaperRow({ paper: p, rank, lang }: { paper: PaperListItem; rank: number; lang: Lang }) {
+  const s = t(lang);
+  const shown = p.authors.slice(0, 4);
+  const badge = p.withdrawnAt
+    ? s.withdrawn
+    : p.summaryStatus === "fatal"
+      ? s.unavailable
+      : p.summaryStatus !== "ok"
+        ? s.inProgress
+        : null;
+  return (
+    <li className="flex gap-4 py-4">
+      <span className="w-6 shrink-0 pt-0.5 text-right text-sm tabular-nums text-stone-400">{rank}</span>
+      <div className="min-w-0 flex-1">
+        <a
+          href={`/paper?id=${encodeURIComponent(p.id)}&lang=${lang}`}
+          target="_blank"
+          rel="noopener"
+          className="font-medium leading-snug text-stone-900 decoration-amber-500 decoration-2 underline-offset-4 hover:underline dark:text-stone-100"
+        >
+          {p.title}
+        </a>
+        {lang === "zh" && p.titleZh && (
+          <p className="mt-0.5 leading-snug text-stone-700 dark:text-stone-300">{p.titleZh}</p>
+        )}
+        <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
+          {shown.join(", ")}
+          {p.authors.length > shown.length && ` ${s.authorsMore(p.authors.length - shown.length)}`}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+          <span className="tabular-nums">▲ {p.upvotes}</span>
+          {p.model && p.summaryStatus === "ok" && <span>· {p.model}</span>}
+          {badge && (
+            <span className="rounded-full bg-stone-200 px-2 py-0.5 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              {badge}
+            </span>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function Notice({ children }: { children: React.ReactNode }) {
+  return <main className="mx-auto w-full max-w-4xl px-4 py-16 text-stone-500 dark:text-stone-400">{children}</main>;
+}

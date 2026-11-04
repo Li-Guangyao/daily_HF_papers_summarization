@@ -1,0 +1,11 @@
+system_design*
+probe_results/
+.env
+backfill_out/
+node_modules/
+web/dist/
+.wrangler/
+.venv/
+__pycache__/
+.pytest_cache/
+.dev.vars

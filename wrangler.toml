@@ -1,0 +1,11 @@
+# Cloudflare Pages project: the SPA in web/dist plus the read-only API in functions/.
+name = "hf-papers-digest"
+pages_build_output_dir = "web/dist"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hf-papers"
+# Replace with the id printed by `npx wrangler d1 create hf-papers` (see README.md).
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
