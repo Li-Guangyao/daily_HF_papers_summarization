@@ -1,10 +1,10 @@
 name: pipeline
 
 on:
-  schedule:                 # GitHub cron is always UTC; 1-5 = Monday–Friday
-    - cron: "17 2 * * 1-5"  # main run: 02:17 UTC = 10:17 Beijing
-    - cron: "17 8 * * 1-5"  # catch-up: outages, .md 404s, late papers
-    - cron: "17 14 * * 1-5"
+  schedule:                 # GitHub cron is always UTC; 2-6 = Tuesday–Saturday (each run covers the previous workdays, so Saturday picks up Friday)
+    - cron: "17 2 * * 2-6"  # main run: 02:17 UTC = 10:17 Beijing
+    - cron: "17 8 * * 2-6"  # catch-up: outages, .md 404s, late papers
+    - cron: "17 14 * * 2-6"
   workflow_dispatch:
     inputs:
       dates:

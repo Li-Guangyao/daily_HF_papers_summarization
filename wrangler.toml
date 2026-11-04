@@ -6,6 +6,5 @@ compatibility_date = "2026-10-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "hf-papers"
-# Replace with the id printed by `npx wrangler d1 create hf-papers` (see README.md).
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "2151bd69-b82b-40b1-9688-a0e240496890"
 migrations_dir = "migrations"
