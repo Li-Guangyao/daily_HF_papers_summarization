@@ -2,10 +2,8 @@
 
 Detailed English and Chinese walkthroughs of the [Hugging Face daily papers](https://huggingface.co/papers).
 
-- **GitHub Actions** runs the pipeline on workdays. It fetches the previous workday's papers, has an LLM write a long English walkthrough and a Chinese version of each paper, and stores them in Cloudflare D1.
+- **GitHub Actions** runs the pipeline Tuesday–Saturday. It fetches the previous workday's papers, has an LLM write a long English walkthrough and a Chinese version of each paper, and stores them in Cloudflare D1.
 - **Cloudflare Pages** serves the website, plus a small read-only API (Pages Functions) that reads D1.
-
-The full design is in `system_design_improved.md`.
 
 ```
 pipeline/            Python pipeline (shared by GitHub Actions and the local backfill)
@@ -154,14 +152,11 @@ All commands run from the repository root.
    | `CF_PAGES_TOKEN` | Optional; only needed for `deploy-web.yml` |
 
    Optionally, under the *Variables* tab, set `TIME_BUDGET_MINUTES` (default 45).
-3. **Push to `main`.** Scheduled workflows only run from the default branch. Your local branch is `master` and the GitHub default is `main`, so push with:
-   ```bash
-   git push origin master:main
-   ```
+3. **Merge into `main`.** Scheduled workflows only run from the default branch (`main`), so the workflow files and the `database_id` in `wrangler.toml` must be on `main`.
 4. **Do a first manual run.** Go to Actions → *pipeline* → *Run workflow*. Enter a recent workday such as `2026-10-21` in **dates**, or leave it empty for the previous 2 workdays.
    - The run summary shows each provider's state and each date's counts.
    - When the date shows `ready`, refresh the website.
-5. **From then on,** the pipeline runs Monday–Friday at 02:17 UTC (10:17 Beijing), with catch-up runs at 08:17 and 14:17 UTC.
+5. **From then on,** the pipeline runs Tuesday–Saturday at 02:17 UTC (10:17 Beijing), with catch-up runs at 08:17 and 14:17 UTC. Each run covers the previous two workdays, so Friday's papers are processed on Saturday morning.
    - A run that finds nothing to do takes about 1 billed minute.
    - If every provider is down, the run fails and GitHub emails you; the papers stay hidden until a later run succeeds.
 
