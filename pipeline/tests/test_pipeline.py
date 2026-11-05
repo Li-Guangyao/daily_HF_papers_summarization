@@ -10,7 +10,8 @@ from pipeline.pool import Timing
 from pipeline.tests.fakes import FakeWorld, en_output, failing, hf_item, make_db, ok_behavior, sse
 
 DAY = "2026-01-05"  # an old Monday: missing markdown falls back to the abstract right away
-FAST = Timing(retry_base=0.01, rate_limit_pause=0.01, cooling=0.05, idle_poll=0.01, paper_retry_delay=0.01)
+FAST = Timing(retry_base=0.01, rate_limit_pause=0.01, cooling=0.05, idle_poll=0.01, paper_retry_delay=0.01,
+              arxiv_pause=0)
 
 
 @pytest.fixture(autouse=True)
@@ -243,3 +244,39 @@ def test_unusable_translation_is_retried_after_a_delay_then_fatal():
     assert world.calls[("a.test", "zh")] == 3
     assert len(errors) == 3 and "output: 这是一段没有任何结构的输出。" in errors[0]["message"]
     assert day_status == "ready"
+
+
+def test_arxiv_html_is_used_when_hf_has_no_markdown():
+    from datetime import timedelta
+    from pipeline.config import utc_today
+    day = (utc_today() - timedelta(days=1)).isoformat()    # recent: without HTML it would wait for HF
+    db = make_db([("nemo", "a.test", 2)])
+    world = FakeWorld({day: [hf_item("2611.00001", 5), hf_item("2611.00002", 4), hf_item("2611.00003", 3)]},
+                      {"a.test": ok_behavior}, missing_md={"2611.00002", "2611.00003"}, arxiv_html={"2611.00002"})
+
+    async def scenario():
+        async with world.client() as client:
+            await run(db, RunOptions(dates=[day], timing=FAST), client=client)
+        return {r["paper_id"]: r for r in await rows(db, "SELECT paper_id, status, source FROM summaries")}
+
+    s = go(scenario())
+    assert (s["2611.00001"]["status"], s["2611.00001"]["source"]) == ("ok", "full_text")    # HF markdown
+    assert (s["2611.00002"]["status"], s["2611.00002"]["source"]) == ("ok", "arxiv_html")   # arXiv HTML
+    assert s["2611.00003"]["status"] == "pending"                                           # neither: waits
+    assert world.calls[("arxiv", "html")] == 2                                              # only when HF has none
+    sent = [body for host, kind, body in world.bodies if kind == "en" and "2611.00002" in str(body)]
+    paper_text = sent[0]["messages"][1]["content"]
+    assert "## 1 Introduction" in paper_text and "$$\nE=mc^{2}\n$$" in paper_text and "Old paper" not in paper_text
+
+
+def test_paper_without_any_full_text_still_uses_the_abstract_when_old():
+    db = make_db([("nemo", "a.test", 1)])
+    world = FakeWorld({DAY: [hf_item("2601.00001", 5)]}, {"a.test": ok_behavior}, missing_md={"2601.00001"})
+
+    async def scenario():
+        async with world.client() as client:
+            await run(db, opts(), client=client)
+        return (await rows(db, "SELECT status, source FROM summaries"))[0]
+
+    assert go(scenario()) == {"status": "ok", "source": "abstract"}
+    assert world.calls[("arxiv", "html")] == 1

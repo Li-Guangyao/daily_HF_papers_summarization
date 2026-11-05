@@ -10,7 +10,9 @@ import time
 
 from pipeline.markdown import (ABSTRACT_NOTICE, OutputCheckError, check_en, check_zh, prepare_input, snippet,
                                strip_reasoning)
+from pipeline.arxiv import html_to_markdown
 from pipeline.pool import RpmLimiter
+from pipeline.tests.fakes import arxiv_page
 from pipeline.taxonomy import MINORS, TAXONOMY, parse_category
 from pipeline.tests.fakes import en_output, zh_output
 
@@ -80,6 +82,8 @@ def test_check_zh():
         check_zh("<title_zh>x</title_zh>", en)                                         # no body
     with pytest.raises(OutputCheckError):
         check_zh(zh_output(n_sections=4), en)                                           # sections dropped
+    extra = zh_output().replace("</summary_zh>", "## 补充说明\n多出来的一节。\n</summary_zh>")
+    assert check_zh(extra, en)[1].endswith("多出来的一节。")                            # an extra section is fine
     with pytest.raises(OutputCheckError):
         check_zh(zh_output().replace("$$", ""), en)                                     # formula not preserved
 
@@ -150,3 +154,21 @@ def test_taxonomy_is_consistent():
         assert major["zh"] and major["en"]
         for m in major["minors"]:
             assert m["id"].startswith(major["id"] + ".") and m["zh"] and m["en"] and m["desc"]
+
+
+def test_arxiv_html_to_markdown():
+    md = html_to_markdown(arxiv_page("2611.00001"))
+    assert md.startswith("# A Paper 2611.00001")
+    assert "#### Abstract" in md and "## 1 Introduction" in md and "### 2.1 Ablations" in md
+    assert "$L=L_{rec}+\\lambda L_{KL}$ is minimized" in md                 # inline math from alttext
+    assert "$$\nE=mc^{2}\n$$" in md and "(1)" not in md                     # display math, no equation number
+    assert "| Model | Acc |" in md and "| Ours | 91.2 |" in md               # table kept as a table
+    assert "- first point" in md and "Figure 1: A plot." in md
+    for gone in ("Ada Lovelace", "References", "Old paper", "Appendix", "Back to arXiv", "Report issue",
+                 "LaTeXML", "x.png", "<"):
+        assert gone not in md, gone
+
+
+def test_arxiv_html_without_a_paper_is_none():
+    assert html_to_markdown("<html><body><p>No HTML for this paper.</p></body></html>") is None
+    assert html_to_markdown(arxiv_page("2611.00001", body_words=5)) is None      # too little text to be a paper

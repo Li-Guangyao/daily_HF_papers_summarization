@@ -12,6 +12,7 @@ pipeline/            Python pipeline (shared by GitHub Actions and the local bac
   core.py            one run: health check → fetch lists → plan → worker pools → readiness
   pool.py            worker pools, rate limiter, failover, one model per paper
   llm.py, hf.py      provider client (OpenAI-compatible streaming) and Hugging Face client
+  arxiv.py           fallback full text: arXiv's HTML version (LaTeXML) converted to markdown
   store.py, d1.py    all SQL; D1 REST client and a local SQLite stand-in
   prompts.py         the beginner-level English prompt, the Chinese prompt and the category prompt (bump PROMPT_VERSION when you edit them)
   taxonomy.py        loads lib/taxonomy.json; parses the <category> tag
@@ -203,6 +204,19 @@ To add a provider, insert a row (same `family` = same model), add its key as a G
 npx wrangler d1 execute hf-papers --remote --command "SELECT created_at, job, target, model_id, http_status, error_code, message FROM job_errors ORDER BY id DESC LIMIT 20"
 ```
 
+**Dates.** A date is a Hugging Face daily-list date: `2026-11-03` means the papers on https://huggingface.co/papers/date/2026-11-03 (the API's `date=` parameter), and the website shows them under 2026-11-03. HF fills a date's list during that day, so it is complete the next day. Each scheduled run (Tuesday–Saturday, 02:17 UTC = 10:17 Beijing) processes the previous two workdays, for example Thursday's runs handle Tuesday and Wednesday, and Saturday's handle Thursday and Friday. Every run re-fetches those lists, so papers added late are picked up. For a manual run, enter the list date you want (`2026-11-03` for that day's papers); avoid today's date, whose list and full texts are still incomplete.
+
+**Full text.** For each paper the pipeline tries, in order:
+
+1. Hugging Face's markdown, `https://huggingface.co/papers/<id>.md` (`source = full_text`);
+2. arXiv's HTML version, `https://arxiv.org/html/<id>`, converted to markdown with formulas kept as LaTeX (`source = arxiv_html`). arXiv builds it from the LaTeX source, so papers submitted without source, or whose conversion failed, have none;
+3. if neither exists yet, it waits up to 10 hours from the first miss (3 days for old dates), then writes the walkthrough from the abstract (`source = abstract`).
+
+Count the sources:
+```bash
+npx wrangler d1 execute hf-papers --remote --command "SELECT source, COUNT(*) AS n FROM summaries GROUP BY 1"
+```
+
 **Categories.** Each paper has a top-level category (`papers.category_major`, e.g. `llm`) and a sub-category (`papers.category_minor`, e.g. `llm.agents`). They come from `lib/taxonomy.json`.
 
 - New papers get theirs from the English-walkthrough request: the model writes a `<category>…</category>` tag before the walkthrough.
@@ -233,7 +247,7 @@ npx wrangler d1 execute hf-papers --remote --command "SELECT created_at, job, ta
 | Symptom | Check |
 |---|---|
 | Site says "No papers have been published yet" | `--status` for recent dates. A date appears once at least one of its papers is done. |
-| A date shows "N more papers are still being analyzed" | Normal for a few hours: a paper whose full text HF hasn't published yet waits up to 10 hours from the first miss (`MD_WAIT_HOURS` in `pipeline/pool.py`), then falls back to the abstract. Later runs finish them. |
+| A date shows "N more papers are still being analyzed" | Normal for a few hours: a paper with neither HF markdown nor arXiv HTML waits up to 10 hours from the first miss (`MD_WAIT_HOURS` in `pipeline/pool.py`), then falls back to the abstract. Later runs finish them. |
 | `paper error translate … missing <summary_zh>` | The model didn't follow the output format. The run log and `job_errors.message` show the start and end of what it returned. A paper is retried at most 3 times (30 s apart), then becomes `fatal` so its date can still become ready. |
 | OpenRouter shows `quota: … free-models-per-day` | Without credits OpenRouter allows only 50 free-model requests a day (each paper needs at least 2). With 10 USD of credits it is 1000 a day. |
 | A date is stuck in `processing` | `job_errors`. Usually a provider is down or out of quota. The next run continues automatically. |
