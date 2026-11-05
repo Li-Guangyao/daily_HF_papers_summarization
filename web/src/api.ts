@@ -41,7 +41,7 @@ export interface PaperDetail {
   categoryMajor: string | null;
   categoryMinor: string | null;
   status: "pending" | "ok" | "error" | "fatal" | null;
-  source: "full_text" | "abstract" | null;
+  source: "full_text" | "arxiv_html" | "abstract" | null; // HF markdown, arXiv HTML, or abstract only
   summaryEn: string | null;
   summaryZh: string | null;
   model: string | null;

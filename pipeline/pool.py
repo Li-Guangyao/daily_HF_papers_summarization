@@ -15,6 +15,7 @@ from datetime import date, timedelta
 import httpx
 
 from . import hf, store
+from .arxiv import ArxivHtml
 from .config import Route, utc_today
 from .llm import PaperError, ProviderError, chat
 from .markdown import OutputCheckError, budget_chars, check_en, check_zh, prepare_input, snippet, strip_reasoning
@@ -35,6 +36,7 @@ class Timing:
     max_provider_failures: int = 6    # per job per run, then the row waits for the next run
     max_rate_limits: int = 20
     paper_retry_delay: float = 30.0   # wait before retrying a paper whose output was unusable
+    arxiv_pause: float = 1.0          # pause after each arXiv request
 
 
 MD_WAIT_HOURS = 10   # wait this long after the markdown was first missing, then use the abstract
@@ -165,14 +167,19 @@ class Job:
 
 
 class MarkdownCache:
-    """Fetch each paper's markdown at most once per run; kept in memory only until its EN step is done."""
+    """Fetch each paper's full text at most once per run; kept in memory only until its EN step is done.
 
-    def __init__(self, client: httpx.AsyncClient, concurrency: int):
+    Hugging Face's markdown first; when HF has none, arXiv's HTML version converted to markdown."""
+
+    def __init__(self, client: httpx.AsyncClient, concurrency: int, arxiv_pause: float = 1.0, log=print):
         self.client = client
         self.sem = asyncio.Semaphore(concurrency)
+        self.arxiv = ArxivHtml(client, pause_s=arxiv_pause)
+        self.log = log
         self.futures: dict[str, asyncio.Future] = {}
 
-    async def get(self, paper_id: str) -> str | None:
+    async def get(self, paper_id: str) -> tuple[str, str] | None:
+        """(text, source) with source 'full_text' (HF markdown) or 'arxiv_html', or None when neither exists."""
         if paper_id not in self.futures:
             self.futures[paper_id] = asyncio.ensure_future(self._fetch(paper_id))
         try:
@@ -181,9 +188,20 @@ class MarkdownCache:
             self.futures.pop(paper_id, None)  # let a later attempt try again
             raise
 
-    async def _fetch(self, paper_id: str) -> str | None:
+    async def _fetch(self, paper_id: str) -> tuple[str, str] | None:
         async with self.sem:
-            return await hf.fetch_markdown(self.client, paper_id)
+            md = await hf.fetch_markdown(self.client, paper_id)
+        if md is not None:
+            return md, "full_text"
+        try:
+            html_md = await self.arxiv.fetch(paper_id)
+        except hf.HFError as e:  # arXiv trouble must not block the paper: treat it as "no HTML" this run
+            self.log(f"arXiv HTML {paper_id} failed: {e}")
+            return None
+        if html_md is None:
+            return None
+        self.log(f"html     {paper_id}: no HF markdown, using arXiv HTML ({len(html_md)} chars)")
+        return html_md, "arxiv_html"
 
     def release(self, paper_id: str) -> None:
         self.futures.pop(paper_id, None)
@@ -203,7 +221,7 @@ class Scheduler:
         self.zh: dict[str, list[Job]] = defaultdict(list)
         self.inflight_en = 0
         self.inflight_zh: Counter = Counter()
-        self.md = MarkdownCache(client, hf_concurrency)
+        self.md = MarkdownCache(client, hf_concurrency, timing.arxiv_pause, log)
         self.md_missed: set[str] = set()
         self.touched_dates: set[str] = set()
         self.done = Counter()
@@ -343,10 +361,11 @@ class Scheduler:
             raise SkipForNow
 
         route = rs.route
-        md = await self.md.get(job.paper_id)
-        if md is not None:
+        fetched = await self.md.get(job.paper_id)
+        if fetched is not None:
+            md, source = fetched
             text, truncated = prepare_input(md, budget_chars(route.context_tokens, route.max_output_tokens))
-            source, messages = "full_text", en_messages(job.paper_id, job.title, text)
+            messages = en_messages(job.paper_id, job.title, text)
         else:
             old = date.fromisoformat(job.daily_date) < utc_today() - timedelta(days=MD_OLD_DAYS)
             waited = job.md_wait_hours
@@ -355,7 +374,7 @@ class Scheduler:
                     self.md_missed.add(job.paper_id)
                     await store.md_miss(self.db, job.paper_id)
                 waiting = f" (waited {waited:.1f} of {MD_WAIT_HOURS} h)" if waited is not None else ""
-                self.log(f"skip {job.paper_id}: markdown not published yet{waiting}")
+                self.log(f"skip {job.paper_id}: no HF markdown or arXiv HTML yet{waiting}")
                 self.md.release(job.paper_id)
                 raise SkipForNow
             if not job.abstract:

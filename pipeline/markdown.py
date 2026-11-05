@@ -88,14 +88,14 @@ def check_en(raw: str, source: str) -> str:
     body = text[start:].strip()
     n_h2 = len(headings(body))
     words = len(re.findall(r"\w+", body))
-    min_h2, min_words = (MIN_H2, MIN_EN_WORDS) if source == "full_text" else (1, MIN_ABSTRACT_WORDS)
+    min_h2, min_words = (MIN_H2, MIN_EN_WORDS) if source != "abstract" else (1, MIN_ABSTRACT_WORDS)
     if n_h2 < min_h2:
         raise OutputCheckError(f"only {n_h2} level-2 headings", raw)
     if words < min_words:
         raise OutputCheckError(f"too short: {words} words", raw)
     if display_math_count(body) % 2:
         raise OutputCheckError("unbalanced $$ math block", raw)
-    return body if source == "full_text" else f"{ABSTRACT_NOTICE}\n\n{body}"
+    return body if source != "abstract" else f"{ABSTRACT_NOTICE}\n\n{body}"
 
 
 def _title_from_lines(text: str) -> str | None:
@@ -128,7 +128,7 @@ def check_zh(raw: str, summary_en: str) -> tuple[str | None, str]:
         title_zh = title_zh or _title_from_lines(rest[:start])
     summary_zh = unfence(summary_zh.strip()).strip()
     n_en, n_zh = len(headings(summary_en)), len(headings(summary_zh))
-    if n_zh != n_en:
+    if n_zh < n_en:  # a dropped section; an extra one (e.g. a heading the English wrote without a space) is fine
         raise OutputCheckError(f"{n_zh} level-2 headings, expected {n_en}", raw)
     if display_math_count(summary_zh) != display_math_count(summary_en):
         raise OutputCheckError("display formulas were not carried over unchanged", raw)
